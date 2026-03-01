@@ -1,0 +1,371 @@
+from __future__ import annotations
+
+import json
+import os
+import stat
+import threading
+import time
+from contextlib import contextmanager
+from pathlib import Path
+from uuid import uuid4
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from moltbook_api.main import create_app as create_platform_app
+from moltbook_api.service import MoltbookService
+from rare_api.main import create_app as create_rare_app
+from rare_api.service import RareService
+from rare_sdk import AgentClient, AgentState
+from rare_sdk.cli import main as cli_main
+from rare_sdk.local_signer import create_local_signer_server
+from rare_sdk.state import get_agent_private_key_path, load_state, save_state
+
+
+def build_runtime() -> TestClient:
+    rare_service = RareService()
+    platform_service = MoltbookService(
+        aud="platform",
+        identity_key_resolver=lambda kid: rare_service.get_identity_public_key(kid),
+        rare_signer_public_key_provider=rare_service.get_rare_signer_public_key,
+    )
+
+    root = FastAPI()
+    root.mount("/rare", create_rare_app(rare_service))
+    root.mount("/platform", create_platform_app(platform_service))
+    return TestClient(root)
+
+
+@contextmanager
+def run_local_signer(tmp_path: Path):
+    socket_path = Path("/tmp") / f"rare-signer-{uuid4().hex}.sock"
+    key_path = tmp_path / "keys" / "signer.key"
+    server = create_local_signer_server(socket_path=str(socket_path), key_file=str(key_path))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    for _ in range(100):
+        if socket_path.exists():
+            break
+        time.sleep(0.01)
+    try:
+        yield socket_path, key_path
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=1)
+
+
+def test_sdk_identity_flow_hosted_signing() -> None:
+    http = build_runtime()
+    state = AgentState()
+
+    client = AgentClient(
+        rare_base_url="http://testserver/rare",
+        platform_base_url="http://testserver/platform",
+        state=state,
+        http_client=http,
+    )
+
+    register = client.register(name="sdk")
+    assert register["agent_id"] == state.agent_id
+    assert state.key_mode == "hosted-signer"
+
+    login = client.login(aud="platform", prefer_full=False)
+    assert login["agent_id"] == state.agent_id
+
+    rename = client.set_name(name="sdk-v2")
+    assert rename["name"] == "sdk-v2"
+
+    refresh = client.refresh_attestation()
+    assert refresh["agent_id"] == state.agent_id
+
+    client.close()
+    http.close()
+
+
+def test_sdk_identity_flow_self_hosted_signing() -> None:
+    http = build_runtime()
+    state = AgentState()
+
+    client = AgentClient(
+        rare_base_url="http://testserver/rare",
+        platform_base_url="http://testserver/platform",
+        state=state,
+        http_client=http,
+    )
+
+    register = client.register(name="sdk-self", key_mode="self-hosted")
+    assert register["agent_id"] == state.agent_id
+    assert state.key_mode == "self-hosted"
+    assert state.agent_private_key
+
+    login = client.login(aud="platform", prefer_full=False)
+    assert login["agent_id"] == state.agent_id
+
+    rename = client.set_name(name="sdk-self-v2")
+    assert rename["name"] == "sdk-self-v2"
+
+    client.close()
+    http.close()
+
+
+def test_sdk_can_sign_platform_action_and_call_post() -> None:
+    http = build_runtime()
+    state = AgentState()
+
+    client = AgentClient(
+        rare_base_url="http://testserver/rare",
+        platform_base_url="http://testserver/platform",
+        state=state,
+        http_client=http,
+    )
+
+    client.register(name="actor")
+    login = client.login(aud="platform", prefer_full=False)
+
+    signed = client.sign_platform_action(
+        action="post",
+        action_payload={"content": "hello"},
+    )
+
+    post_response = http.post(
+        "/platform/posts",
+        json={
+            "content": "hello",
+            "nonce": signed["nonce"],
+            "issued_at": signed["issued_at"],
+            "expires_at": signed["expires_at"],
+            "signature_by_session": signed["signature_by_session"],
+        },
+        headers={"Authorization": f"Bearer {login['session_token']}"},
+    )
+    assert post_response.status_code == 200
+
+    client.close()
+    http.close()
+
+
+def test_sdk_self_hosted_can_sign_platform_action_and_call_post() -> None:
+    http = build_runtime()
+    state = AgentState()
+
+    client = AgentClient(
+        rare_base_url="http://testserver/rare",
+        platform_base_url="http://testserver/platform",
+        state=state,
+        http_client=http,
+    )
+
+    client.register(name="actor-self", key_mode="self-hosted")
+    login = client.login(aud="platform", prefer_full=False)
+
+    signed = client.sign_platform_action(
+        action="post",
+        action_payload={"content": "hello-self"},
+    )
+
+    post_response = http.post(
+        "/platform/posts",
+        json={
+            "content": "hello-self",
+            "nonce": signed["nonce"],
+            "issued_at": signed["issued_at"],
+            "expires_at": signed["expires_at"],
+            "signature_by_session": signed["signature_by_session"],
+        },
+        headers={"Authorization": f"Bearer {login['session_token']}"},
+    )
+    assert post_response.status_code == 200
+
+    client.close()
+    http.close()
+
+
+def test_sdk_self_hosted_with_local_signer_and_no_private_key_in_state(tmp_path) -> None:
+    http = build_runtime()
+    state = AgentState()
+
+    with run_local_signer(tmp_path) as (socket_path, key_path):
+        client = AgentClient(
+            rare_base_url="http://testserver/rare",
+            platform_base_url="http://testserver/platform",
+            state=state,
+            http_client=http,
+            signer_socket_path=str(socket_path),
+        )
+
+        register = client.register(name="signer-agent", key_mode="self-hosted")
+        assert register["agent_id"] == state.agent_id
+        assert state.agent_private_key is None
+        assert key_path.exists()
+
+        login = client.login(aud="platform", prefer_full=False)
+        signed = client.sign_platform_action(
+            action="post",
+            action_payload={"content": "hello-from-signer"},
+        )
+        post_response = http.post(
+            "/platform/posts",
+            json={
+                "content": "hello-from-signer",
+                "nonce": signed["nonce"],
+                "issued_at": signed["issued_at"],
+                "expires_at": signed["expires_at"],
+                "signature_by_session": signed["signature_by_session"],
+            },
+            headers={"Authorization": f"Bearer {login['session_token']}"},
+        )
+        assert post_response.status_code == 200
+
+        client.close()
+
+    http.close()
+
+
+def test_cli_outputs_json_success(tmp_path, capsys) -> None:
+    state_file = tmp_path / "state.json"
+    exit_code = cli_main(["--state-file", str(state_file), "show-state"])
+    output = capsys.readouterr().out.strip()
+
+    assert exit_code == 0
+    payload = json.loads(output)
+    assert payload["ok"] is True
+    assert payload["command"] == "show-state"
+
+
+def test_cli_outputs_json_error(monkeypatch, tmp_path, capsys) -> None:
+    from rare_sdk import cli as cli_module
+    from rare_sdk.client import AgentClientError
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def register(self, *args, **kwargs):
+            raise AgentClientError("boom")
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(cli_module, "AgentClient", FakeClient)
+
+    state_file = tmp_path / "state.json"
+    exit_code = cli_module.main(["--state-file", str(state_file), "register"])
+    output = capsys.readouterr().out.strip()
+
+    assert exit_code == 1
+    payload = json.loads(output)
+    assert payload["ok"] is False
+    assert payload["command"] == "register"
+    assert payload["error"] == "client_error"
+
+
+def test_self_hosted_private_key_saved_outside_state_json(tmp_path) -> None:
+    state_file = tmp_path / "state.json"
+    state = AgentState(
+        agent_id="agent_abc",
+        key_mode="self-hosted",
+        agent_private_key="secret-private-key",
+    )
+
+    save_state(state_file, state)
+
+    saved_json = json.loads(state_file.read_text(encoding="utf-8"))
+    assert "agent_private_key" not in saved_json
+
+    key_path = get_agent_private_key_path(state_file, "agent_abc")
+    assert key_path.exists()
+    assert key_path.read_text(encoding="utf-8") == "secret-private-key"
+
+    loaded_without_key = load_state(state_file)
+    assert loaded_without_key.agent_private_key is None
+
+    loaded = load_state(state_file, include_private_key=True)
+    assert loaded.agent_private_key == "secret-private-key"
+
+    if os.name != "nt":
+        assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+
+
+def test_load_state_supports_legacy_private_key_field(tmp_path) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "agent_id": "agent_legacy",
+                "key_mode": "self-hosted",
+                "agent_private_key": "legacy-private-key",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_state(state_file, include_private_key=True)
+    assert loaded.agent_private_key == "legacy-private-key"
+
+    save_state(state_file, loaded)
+    saved_json = json.loads(state_file.read_text(encoding="utf-8"))
+    assert "agent_private_key" not in saved_json
+    assert get_agent_private_key_path(state_file, "agent_legacy").exists()
+
+
+def test_sdk_upgrade_l1_magic_link_flow() -> None:
+    http = build_runtime()
+    state = AgentState()
+    client = AgentClient(
+        rare_base_url="http://testserver/rare",
+        platform_base_url="http://testserver/platform",
+        state=state,
+        http_client=http,
+    )
+
+    client.register(name="upgrade-sdk-l1")
+    requested = client.request_upgrade_l1(email="owner@example.com")
+    assert requested["status"] == "human_pending"
+    request_id = requested["upgrade_request_id"]
+
+    sent = client.send_l1_upgrade_magic_link(request_id=request_id)
+    assert sent["sent"] is True
+    verified = client.verify_l1_upgrade_magic_link(token=sent["token"])
+    assert verified["status"] == "upgraded"
+    assert verified["level"] == "L1"
+
+    status = client.get_upgrade_status(request_id=request_id)
+    assert status["status"] == "upgraded"
+
+    client.close()
+    http.close()
+
+
+def test_sdk_upgrade_l2_social_flow() -> None:
+    http = build_runtime()
+    state = AgentState()
+    client = AgentClient(
+        rare_base_url="http://testserver/rare",
+        platform_base_url="http://testserver/platform",
+        state=state,
+        http_client=http,
+    )
+
+    client.register(name="upgrade-sdk-l2")
+    l1 = client.request_upgrade_l1(email="owner2@example.com")
+    sent = client.send_l1_upgrade_magic_link(request_id=l1["upgrade_request_id"])
+    verified_l1 = client.verify_l1_upgrade_magic_link(token=sent["token"])
+    assert verified_l1["level"] == "L1"
+
+    requested_l2 = client.request_upgrade_l2()
+    assert requested_l2["status"] == "human_pending"
+    request_id = requested_l2["upgrade_request_id"]
+    started = client.start_l2_social(request_id=request_id, provider="github")
+    assert started["provider"] == "github"
+
+    completed = client.complete_l2_social(
+        request_id=request_id,
+        provider="github",
+        provider_user_snapshot={"id": "42", "login": "rare-dev"},
+    )
+    assert completed["status"] == "upgraded"
+    assert completed["level"] == "L2"
+
+    client.close()
+    http.close()
