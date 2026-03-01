@@ -85,6 +85,8 @@ def _build_parser() -> argparse.ArgumentParser:
     start_social.add_argument("--request-id", required=True)
     start_social.add_argument("--provider", required=True, choices=["x", "github"])
 
+    subparsers.add_parser("rotate-hosted-token", help="Rotate hosted signer management token")
+    subparsers.add_parser("revoke-hosted-token", help="Revoke hosted signer management token")
     subparsers.add_parser("refresh-attestation", help="Refresh identity attestation")
     subparsers.add_parser("show-state", help="Show local state")
     signer_serve = subparsers.add_parser("signer-serve", help="Run local signer daemon")
@@ -96,6 +98,33 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _print(payload: dict) -> None:
     print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+
+
+def _redact_payload(payload: object, *, fields: set[str]) -> object:
+    if isinstance(payload, dict):
+        redacted: dict[str, object] = {}
+        for key, value in payload.items():
+            if key in fields and isinstance(value, str) and value:
+                redacted[key] = "***REDACTED***"
+            else:
+                redacted[key] = _redact_payload(value, fields=fields)
+        return redacted
+    if isinstance(payload, list):
+        return [_redact_payload(item, fields=fields) for item in payload]
+    return payload
+
+
+def _redact_sensitive_state(state_payload: dict) -> dict:
+    redacted = _redact_payload(
+        state_payload,
+        fields={"session_token", "hosted_management_token"},
+    )
+    assert isinstance(redacted, dict)
+    return redacted
+
+
+def _redact_command_response(response_payload: object) -> object:
+    return _redact_payload(response_payload, fields={"hosted_management_token"})
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -156,16 +185,26 @@ def main(argv: list[str] | None = None) -> int:
                 request_id=args.request_id,
                 provider=args.provider,
             )
+        elif args.command == "rotate-hosted-token":
+            response = client.rotate_hosted_management_token()
+        elif args.command == "revoke-hosted-token":
+            response = client.revoke_hosted_management_token()
         elif args.command == "refresh-attestation":
             response = client.refresh_attestation()
         elif args.command == "show-state":
-            response = state.to_dict()
+            response = _redact_sensitive_state(state.to_dict(include_secrets=True))
         else:
             parser.error(f"unknown command: {args.command}")
             return 2
 
         save_state(state_file, state)
-        _print({"ok": True, "command": args.command, "data": response})
+        _print(
+            {
+                "ok": True,
+                "command": args.command,
+                "data": _redact_command_response(response),
+            }
+        )
         return 0
     except ApiError as exc:
         _print(

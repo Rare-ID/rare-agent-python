@@ -7,6 +7,7 @@ import httpx
 
 from rare_identity_protocol import (
     build_action_payload,
+    build_agent_auth_payload,
     build_auth_challenge_payload,
     build_full_attestation_issue_payload,
     build_platform_grant_payload,
@@ -199,9 +200,19 @@ class AgentClient:
         self.state.key_mode = str(result.get("key_mode") or "hosted-signer")
         if self.state.key_mode == "self-hosted":
             self.state.agent_private_key = local_agent_private_key
+            self.state.hosted_management_token = None
+            self.state.hosted_management_token_expires_at = None
         else:
             self.state.agent_private_key = None
             self._session_private_key = None
+            hosted_management_token = result.get("hosted_management_token")
+            if not isinstance(hosted_management_token, str) or not hosted_management_token:
+                raise AgentClientError("missing hosted_management_token in register response")
+            hosted_management_token_expires_at = result.get("hosted_management_token_expires_at")
+            if not isinstance(hosted_management_token_expires_at, int):
+                raise AgentClientError("missing hosted_management_token_expires_at in register response")
+            self.state.hosted_management_token = hosted_management_token
+            self.state.hosted_management_token_expires_at = hosted_management_token_expires_at
 
         self.state.full_identity_attestations = {}
         if not self.state.agent_id:
@@ -275,6 +286,7 @@ class AgentClient:
                     "name": name,
                     "ttl_seconds": ttl_seconds,
                 },
+                headers=self._hosted_signer_headers(),
             )
 
         result = self._request_json(
@@ -339,6 +351,7 @@ class AgentClient:
                     "platform_aud": aud,
                     "ttl_seconds": ttl_seconds,
                 },
+                headers=self._hosted_signer_headers(),
             )
         return self._request_json(
             method="POST",
@@ -391,6 +404,7 @@ class AgentClient:
                     "platform_aud": aud,
                     "ttl_seconds": ttl_seconds,
                 },
+                headers=self._hosted_signer_headers(),
             )
             signed_payload = {
                 "agent_id": agent_id,
@@ -412,6 +426,7 @@ class AgentClient:
             method="GET",
             service="rare",
             path=f"/v1/agents/platform-grants/{agent_id}",
+            headers=self._management_headers(operation="list_platform_grants", resource_id=agent_id),
         )
 
     def issue_full_attestation(self, *, aud: str, ttl_seconds: int = 120) -> dict:
@@ -459,6 +474,7 @@ class AgentClient:
                     "platform_aud": aud,
                     "ttl_seconds": ttl_seconds,
                 },
+                headers=self._hosted_signer_headers(),
             )
         result = self._request_json(
             method="POST",
@@ -529,6 +545,7 @@ class AgentClient:
                 "request_id": request_id,
                 "ttl_seconds": ttl_seconds,
             },
+            headers=self._hosted_signer_headers(),
         )
 
     def request_upgrade_l1(self, *, email: str, ttl_seconds: int = 120) -> dict:
@@ -565,7 +582,44 @@ class AgentClient:
             method="GET",
             service="rare",
             path=f"/v1/upgrades/requests/{request_id}",
+            headers=self._management_headers(operation="upgrade_status", resource_id=request_id),
         )
+
+    def rotate_hosted_management_token(self) -> dict:
+        if self._is_self_hosted():
+            raise AgentClientError("rotate_hosted_management_token is only available in hosted-signer mode")
+        agent_id = self._require_agent_id()
+        result = self._request_json(
+            method="POST",
+            service="rare",
+            path="/v1/signer/rotate_management_token",
+            json_payload={"agent_id": agent_id},
+            headers=self._hosted_signer_headers(),
+        )
+        token = result.get("hosted_management_token")
+        expires_at = result.get("hosted_management_token_expires_at")
+        if not isinstance(token, str) or not token:
+            raise AgentClientError("missing hosted_management_token in rotate response")
+        if not isinstance(expires_at, int):
+            raise AgentClientError("missing hosted_management_token_expires_at in rotate response")
+        self.state.hosted_management_token = token
+        self.state.hosted_management_token_expires_at = expires_at
+        return result
+
+    def revoke_hosted_management_token(self) -> dict:
+        if self._is_self_hosted():
+            raise AgentClientError("revoke_hosted_management_token is only available in hosted-signer mode")
+        agent_id = self._require_agent_id()
+        result = self._request_json(
+            method="POST",
+            service="rare",
+            path="/v1/signer/revoke_management_token",
+            json_payload={"agent_id": agent_id},
+            headers=self._hosted_signer_headers(),
+        )
+        self.state.hosted_management_token = None
+        self.state.hosted_management_token_expires_at = None
+        return result
 
     def send_l1_upgrade_magic_link(self, *, request_id: str) -> dict:
         return self._request_json(
@@ -573,6 +627,7 @@ class AgentClient:
             service="rare",
             path="/v1/upgrades/l1/email/send-link",
             json_payload={"upgrade_request_id": request_id},
+            headers=self._management_headers(operation="upgrade_send_link", resource_id=request_id),
         )
 
     def verify_l1_upgrade_magic_link(self, *, token: str) -> dict:
@@ -591,6 +646,10 @@ class AgentClient:
                 "upgrade_request_id": request_id,
                 "provider": provider,
             },
+            headers=self._management_headers(
+                operation="upgrade_start_social",
+                resource_id=f"{request_id}:{provider}",
+            ),
         )
 
     def complete_l2_social(
@@ -609,6 +668,10 @@ class AgentClient:
                 "provider": provider,
                 "provider_user_snapshot": provider_user_snapshot,
             },
+            headers=self._management_headers(
+                operation="upgrade_complete_social",
+                resource_id=f"{request_id}:{provider}",
+            ),
         )
 
     def login(
@@ -685,6 +748,7 @@ class AgentClient:
                     "scope": scope,
                     "delegation_ttl_seconds": delegation_ttl_seconds,
                 },
+                headers=self._hosted_signer_headers(),
             )
             self._session_private_key = None
 
@@ -806,6 +870,7 @@ class AgentClient:
                 "issued_at": issued_at,
                 "expires_at": expires_at,
             },
+            headers=self._hosted_signer_headers(),
         )
 
     def _require_agent_id(self) -> str:
@@ -842,6 +907,59 @@ class AgentClient:
         if not self._session_private_key:
             raise AgentClientError("session_private_key missing; run login in current process first")
         return self._session_private_key
+
+    def _require_hosted_management_token(self) -> str:
+        if not self.state.hosted_management_token:
+            raise AgentClientError("hosted_management_token missing; re-register hosted-signer agent")
+        expires_at = self.state.hosted_management_token_expires_at
+        if isinstance(expires_at, int) and expires_at <= now_ts():
+            raise AgentClientError("hosted_management_token expired; rotate hosted token or re-register agent")
+        return self.state.hosted_management_token
+
+    def _hosted_signer_headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self._require_hosted_management_token()}"}
+
+    def _management_headers(self, *, operation: str, resource_id: str) -> dict[str, str]:
+        if not self._is_self_hosted():
+            return self._hosted_signer_headers()
+        return self._self_hosted_management_headers(operation=operation, resource_id=resource_id)
+
+    def _self_hosted_management_headers(self, *, operation: str, resource_id: str) -> dict[str, str]:
+        agent_id = self._require_agent_id()
+        issued_at = now_ts()
+        expires_at = issued_at + 120
+        nonce = generate_nonce(10)
+
+        if self._signer is not None:
+            signed = self._call_signer(
+                "sign_management_auth",
+                self._signer.sign_management_auth,
+                agent_id=agent_id,
+                operation=operation,
+                resource_id=resource_id,
+                nonce=nonce,
+                issued_at=issued_at,
+                expires_at=expires_at,
+            )
+            signature = signed["signature_by_agent"]
+        else:
+            payload = build_agent_auth_payload(
+                agent_id=agent_id,
+                operation=operation,
+                resource_id=resource_id,
+                nonce=nonce,
+                issued_at=issued_at,
+                expires_at=expires_at,
+            )
+            signature = sign_detached(payload, load_private_key(self._require_agent_private_key()))
+
+        return {
+            "X-Rare-Agent-Id": agent_id,
+            "X-Rare-Agent-Nonce": nonce,
+            "X-Rare-Agent-Issued-At": str(issued_at),
+            "X-Rare-Agent-Expires-At": str(expires_at),
+            "X-Rare-Agent-Signature": signature,
+        }
 
     def _call_signer(self, operation: str, func, **kwargs):
         try:

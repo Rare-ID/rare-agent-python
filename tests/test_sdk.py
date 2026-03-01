@@ -19,11 +19,17 @@ from rare_api.service import RareService
 from rare_sdk import AgentClient, AgentState
 from rare_sdk.cli import main as cli_main
 from rare_sdk.local_signer import create_local_signer_server
-from rare_sdk.state import get_agent_private_key_path, load_state, save_state
+from rare_sdk.state import (
+    get_agent_private_key_path,
+    get_hosted_management_token_path,
+    get_signer_key_path,
+    load_state,
+    save_state,
+)
 
 
 def build_runtime() -> TestClient:
-    rare_service = RareService()
+    rare_service = RareService(allow_local_upgrade_shortcuts=True)
     platform_service = MoltbookService(
         aud="platform",
         identity_key_resolver=lambda kid: rare_service.get_identity_public_key(kid),
@@ -69,6 +75,10 @@ def test_sdk_identity_flow_hosted_signing() -> None:
     register = client.register(name="sdk")
     assert register["agent_id"] == state.agent_id
     assert state.key_mode == "hosted-signer"
+    assert state.hosted_management_token
+    assert isinstance(state.hosted_management_token_expires_at, int)
+    listed = client.list_platform_grants()
+    assert listed["agent_id"] == state.agent_id
 
     login = client.login(aud="platform", prefer_full=False)
     assert login["agent_id"] == state.agent_id
@@ -98,6 +108,8 @@ def test_sdk_identity_flow_self_hosted_signing() -> None:
     assert register["agent_id"] == state.agent_id
     assert state.key_mode == "self-hosted"
     assert state.agent_private_key
+    assert state.hosted_management_token is None
+    assert state.hosted_management_token_expires_at is None
 
     login = client.login(aud="platform", prefer_full=False)
     assert login["agent_id"] == state.agent_id
@@ -140,6 +152,33 @@ def test_sdk_can_sign_platform_action_and_call_post() -> None:
         headers={"Authorization": f"Bearer {login['session_token']}"},
     )
     assert post_response.status_code == 200
+
+    client.close()
+    http.close()
+
+
+def test_sdk_can_rotate_and_revoke_hosted_management_token() -> None:
+    http = build_runtime()
+    state = AgentState()
+
+    client = AgentClient(
+        rare_base_url="http://testserver/rare",
+        platform_base_url="http://testserver/platform",
+        state=state,
+        http_client=http,
+    )
+
+    client.register(name="hosted-token-ops")
+    original_token = state.hosted_management_token
+    rotated = client.rotate_hosted_management_token()
+    assert isinstance(rotated["hosted_management_token"], str)
+    assert rotated["hosted_management_token"] != original_token
+    assert isinstance(state.hosted_management_token_expires_at, int)
+
+    revoked = client.revoke_hosted_management_token()
+    assert revoked["revoked"] is True
+    assert state.hosted_management_token is None
+    assert state.hosted_management_token_expires_at is None
 
     client.close()
     http.close()
@@ -233,6 +272,56 @@ def test_cli_outputs_json_success(tmp_path, capsys) -> None:
     assert payload["command"] == "show-state"
 
 
+def test_cli_show_state_redacts_sensitive_tokens(tmp_path, capsys) -> None:
+    state_file = tmp_path / "state.json"
+    state = AgentState(
+        agent_id="agent-1",
+        key_mode="hosted-signer",
+        session_token="session-token",
+        hosted_management_token="hosted-token",
+    )
+    save_state(state_file, state)
+    exit_code = cli_main(["--state-file", str(state_file), "show-state"])
+    output = capsys.readouterr().out.strip()
+
+    assert exit_code == 0
+    payload = json.loads(output)
+    data = payload["data"]
+    assert data["session_token"] == "***REDACTED***"
+    assert data["hosted_management_token"] == "***REDACTED***"
+
+
+def test_cli_register_redacts_hosted_management_token(monkeypatch, tmp_path, capsys) -> None:
+    from rare_sdk import cli as cli_module
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            self.state = kwargs["state"]
+
+        def register(self, *args, **kwargs):
+            self.state.agent_id = "agent-register"
+            self.state.key_mode = "hosted-signer"
+            self.state.hosted_management_token = "hosted-secret-token"
+            return {
+                "agent_id": "agent-register",
+                "key_mode": "hosted-signer",
+                "hosted_management_token": "hosted-secret-token",
+            }
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(cli_module, "AgentClient", FakeClient)
+
+    state_file = tmp_path / "state.json"
+    exit_code = cli_module.main(["--state-file", str(state_file), "register"])
+    output = capsys.readouterr().out.strip()
+
+    assert exit_code == 0
+    payload = json.loads(output)
+    assert payload["data"]["hosted_management_token"] == "***REDACTED***"
+
+
 def test_cli_outputs_json_error(monkeypatch, tmp_path, capsys) -> None:
     from rare_sdk import cli as cli_module
     from rare_sdk.client import AgentClientError
@@ -287,6 +376,72 @@ def test_self_hosted_private_key_saved_outside_state_json(tmp_path) -> None:
         assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
 
 
+def test_hosted_management_token_saved_outside_state_json(tmp_path) -> None:
+    state_file = tmp_path / "state.json"
+    state = AgentState(
+        agent_id="agent_hosted",
+        key_mode="hosted-signer",
+        hosted_management_token="hosted-secret-token",
+        hosted_management_token_expires_at=123456,
+    )
+
+    save_state(state_file, state)
+
+    saved_json = json.loads(state_file.read_text(encoding="utf-8"))
+    assert "hosted_management_token" not in saved_json
+    assert saved_json["hosted_management_token_expires_at"] == 123456
+
+    token_path = get_hosted_management_token_path(state_file, "agent_hosted")
+    assert token_path.exists()
+    assert token_path.read_text(encoding="utf-8") == "hosted-secret-token"
+
+    loaded = load_state(state_file)
+    assert loaded.hosted_management_token == "hosted-secret-token"
+    assert loaded.hosted_management_token_expires_at == 123456
+
+    if os.name != "nt":
+        assert stat.S_IMODE(state_file.stat().st_mode) == 0o600
+        assert stat.S_IMODE(token_path.stat().st_mode) == 0o600
+
+
+def test_save_state_cleans_stale_agent_secret_files(tmp_path) -> None:
+    state_file = tmp_path / "state.json"
+    signer_key_path = get_signer_key_path(state_file)
+    signer_key_path.parent.mkdir(parents=True, exist_ok=True)
+    signer_key_path.write_text("signer-key", encoding="utf-8")
+
+    state_a = AgentState(
+        agent_id="agent_a",
+        key_mode="hosted-signer",
+        hosted_management_token="token-a",
+    )
+    save_state(state_file, state_a)
+    token_a_path = get_hosted_management_token_path(state_file, "agent_a")
+    assert token_a_path.exists()
+
+    state_b = AgentState(
+        agent_id="agent_b",
+        key_mode="self-hosted",
+        agent_private_key="key-b",
+    )
+    save_state(state_file, state_b)
+    key_b_path = get_agent_private_key_path(state_file, "agent_b")
+    assert key_b_path.exists()
+    assert not token_a_path.exists()
+
+    state_c = AgentState(
+        agent_id="agent_c",
+        key_mode="hosted-signer",
+        hosted_management_token="token-c",
+    )
+    save_state(state_file, state_c)
+    token_c_path = get_hosted_management_token_path(state_file, "agent_c")
+    assert token_c_path.exists()
+    assert not key_b_path.exists()
+
+    assert signer_key_path.exists()
+
+
 def test_load_state_supports_legacy_private_key_field(tmp_path) -> None:
     state_file = tmp_path / "state.json"
     state_file.write_text(
@@ -307,6 +462,31 @@ def test_load_state_supports_legacy_private_key_field(tmp_path) -> None:
     saved_json = json.loads(state_file.read_text(encoding="utf-8"))
     assert "agent_private_key" not in saved_json
     assert get_agent_private_key_path(state_file, "agent_legacy").exists()
+
+
+def test_load_state_supports_legacy_hosted_management_token_field(tmp_path) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "agent_id": "agent_legacy_hosted",
+                "key_mode": "hosted-signer",
+                "hosted_management_token": "legacy-hosted-token",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_state(state_file)
+    assert loaded.hosted_management_token == "legacy-hosted-token"
+    assert loaded.hosted_management_token_expires_at is None
+
+    save_state(state_file, loaded)
+    saved_json = json.loads(state_file.read_text(encoding="utf-8"))
+    assert "hosted_management_token" not in saved_json
+    token_path = get_hosted_management_token_path(state_file, "agent_legacy_hosted")
+    assert token_path.exists()
+    assert token_path.read_text(encoding="utf-8") == "legacy-hosted-token"
 
 
 def test_sdk_upgrade_l1_magic_link_flow() -> None:
@@ -332,6 +512,32 @@ def test_sdk_upgrade_l1_magic_link_flow() -> None:
 
     status = client.get_upgrade_status(request_id=request_id)
     assert status["status"] == "upgraded"
+
+    client.close()
+    http.close()
+
+
+def test_sdk_self_hosted_upgrade_status_and_grants_are_accessible() -> None:
+    http = build_runtime()
+    state = AgentState()
+    client = AgentClient(
+        rare_base_url="http://testserver/rare",
+        platform_base_url="http://testserver/platform",
+        state=state,
+        http_client=http,
+    )
+
+    client.register(name="self-status", key_mode="self-hosted")
+    requested = client.request_upgrade_l1(email="self-status@example.com")
+    request_id = requested["upgrade_request_id"]
+
+    status = client.get_upgrade_status(request_id=request_id)
+    assert status["upgrade_request_id"] == request_id
+    assert status["status"] in {"human_pending", "upgraded"}
+
+    grants = client.list_platform_grants()
+    assert grants["agent_id"] == state.agent_id
+    assert isinstance(grants["grants"], list)
 
     client.close()
     http.close()

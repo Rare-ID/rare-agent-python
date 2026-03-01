@@ -10,6 +10,7 @@ from typing import Any
 
 from rare_identity_protocol import (
     build_action_payload,
+    build_agent_auth_payload,
     build_auth_challenge_payload,
     build_full_attestation_issue_payload,
     build_platform_grant_payload,
@@ -202,6 +203,29 @@ class LocalSignerService:
         signature = sign_detached(sign_input, load_private_key(self._agent_private_key))
         return {"signature_by_agent": signature}
 
+    def sign_management_auth(
+        self,
+        *,
+        agent_id: str,
+        operation: str,
+        resource_id: str,
+        nonce: str,
+        issued_at: int,
+        expires_at: int,
+    ) -> dict[str, Any]:
+        if agent_id != self.agent_id:
+            raise LocalSignerError("agent_id does not match signer identity")
+        sign_input = build_agent_auth_payload(
+            agent_id=agent_id,
+            operation=operation,
+            resource_id=resource_id,
+            nonce=nonce,
+            issued_at=issued_at,
+            expires_at=expires_at,
+        )
+        signature = sign_detached(sign_input, load_private_key(self._agent_private_key))
+        return {"signature_by_agent": signature}
+
     def sign_action(
         self,
         *,
@@ -245,6 +269,8 @@ class LocalSignerService:
             return self.sign_full_attestation_issue(**params)
         if method == "sign_upgrade_request":
             return self.sign_upgrade_request(**params)
+        if method == "sign_management_auth":
+            return self.sign_management_auth(**params)
         if method == "sign_action":
             return self.sign_action(**params)
         raise LocalSignerError(f"unsupported method: {method}")
@@ -277,7 +303,9 @@ class _LocalSignerHandler(socketserver.StreamRequestHandler):
         try:
             request = json.loads(raw.decode("utf-8"))
             method = request.get("method")
-            params = request.get("params") or {}
+            params = request.get("params", {})
+            if params is None:
+                params = {}
             if not isinstance(method, str):
                 raise LocalSignerError("invalid method")
             if not isinstance(params, dict):
@@ -490,6 +518,28 @@ class LocalSignerClient:
                 "agent_id": agent_id,
                 "target_level": target_level,
                 "request_id": request_id,
+                "nonce": nonce,
+                "issued_at": issued_at,
+                "expires_at": expires_at,
+            },
+        )
+
+    def sign_management_auth(
+        self,
+        *,
+        agent_id: str,
+        operation: str,
+        resource_id: str,
+        nonce: str,
+        issued_at: int,
+        expires_at: int,
+    ) -> dict[str, Any]:
+        return self._request(
+            "sign_management_auth",
+            {
+                "agent_id": agent_id,
+                "operation": operation,
+                "resource_id": resource_id,
                 "nonce": nonce,
                 "issued_at": issued_at,
                 "expires_at": expires_at,
