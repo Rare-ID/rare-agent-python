@@ -5,8 +5,8 @@ from dataclasses import dataclass
 import pytest
 
 from rare_identity_protocol import generate_ed25519_keypair
-from rare_sdk import AgentClient, AgentState
-from rare_sdk.client import AgentClientError, ApiError
+from rare_agent_sdk import AgentClient, AgentState
+from rare_agent_sdk.client import AgentClientError, ApiError
 from test_sdk import build_runtime
 
 
@@ -39,6 +39,11 @@ def test_request_json_rejects_non_dict_success_response() -> None:
     client = AgentClient(http_client=_FakeHttpClient([_FakeResponse(status_code=200, json_body=["not-dict"])]))
     with pytest.raises(AgentClientError, match="expected JSON object response"):
         client._request_json(method="GET", service="rare", path="/v1/test")  # noqa: SLF001
+
+
+def test_default_rare_base_url_points_to_root_prefix() -> None:
+    client = AgentClient(http_client=_FakeHttpClient([]))
+    assert client._url("rare", "/v1/test") == "http://127.0.0.1:8000/v1/test"  # noqa: SLF001
 
 
 def test_request_json_rejects_non_json_success_response() -> None:

@@ -23,8 +23,8 @@ from rare_identity_protocol import (
     sign_detached,
 )
 
-from rare_sdk.local_signer import LocalSignerClient, LocalSignerError
-from rare_sdk.state import AgentState
+from rare_agent_sdk.local_signer import LocalSignerClient, LocalSignerError
+from rare_agent_sdk.state import AgentState
 
 
 class AgentClientError(RuntimeError):
@@ -44,7 +44,7 @@ class AgentClient:
     def __init__(
         self,
         *,
-        rare_base_url: str = "http://127.0.0.1:8000/rare",
+        rare_base_url: str = "http://127.0.0.1:8000",
         platform_base_url: str = "http://127.0.0.1:8000/platform",
         state: AgentState | None = None,
         http_client: Any | None = None,
@@ -632,9 +632,10 @@ class AgentClient:
 
     def verify_l1_upgrade_magic_link(self, *, token: str) -> dict:
         return self._request_json(
-            method="GET",
+            method="POST",
             service="rare",
-            path=f"/v1/upgrades/l1/email/verify?token={token}",
+            path="/v1/upgrades/l1/email/verify",
+            json_payload={"token": token},
         )
 
     def start_l2_social(self, *, request_id: str, provider: str) -> dict:

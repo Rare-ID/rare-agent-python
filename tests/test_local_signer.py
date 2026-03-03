@@ -12,7 +12,7 @@ from uuid import uuid4
 import pytest
 
 from rare_identity_protocol import now_ts
-from rare_sdk.local_signer import (
+from rare_agent_sdk.local_signer import (
     LocalSignerClient,
     LocalSignerError,
     LocalSignerService,

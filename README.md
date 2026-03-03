@@ -1,4 +1,4 @@
-# rare-sdk-python
+# rare-agent-sdk-python
 
 Python SDK and CLI for Agent identity flows on Rare.
 
@@ -21,6 +21,23 @@ Python SDK and CLI for Agent identity flows on Rare.
 (cd ../rare-identity-core && pip install -e .)
 pip install -e .[test]
 ```
+
+可复现依赖安装：
+
+```bash
+pip install -r requirements-test.lock
+pip install -e .[test] --no-deps
+```
+
+## Local Run Prerequisite
+
+先启动 core API：
+
+```bash
+(cd ../rare-identity-core && uvicorn rare_api.main:app --reload --host 127.0.0.1 --port 8000)
+```
+
+CLI 默认 `--rare-url` 为 `http://127.0.0.1:8000`（无需额外加 `/rare` 前缀）。
 
 ## CLI
 
@@ -48,7 +65,7 @@ rare show-state
 ## SDK
 
 ```python
-from rare_sdk import AgentClient, AgentState
+from rare_agent_sdk import AgentClient, AgentState
 
 state = AgentState()
 client = AgentClient(state=state)
@@ -60,3 +77,15 @@ client.grant_platform(aud="platform")
 client.login(aud="platform")
 signed = client.sign_platform_action(action="post", action_payload={"content": "hello"})
 ```
+
+## Test
+
+```bash
+pytest -q
+```
+
+## Related Docs
+
+- 根仓用户流程：`../docs/user-flow.zh.md`
+- 根仓平台接入流程：`../docs/platform-integration-flow.zh.md`
+- 根仓上线计划：`../docs/deployment-gcp-cloudflare.zh.md`

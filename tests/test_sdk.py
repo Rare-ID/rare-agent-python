@@ -6,20 +6,19 @@ import stat
 import threading
 import time
 from contextlib import contextmanager
+from importlib import import_module
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from moltbook_api.main import create_app as create_platform_app
-from moltbook_api.service import MoltbookService
-from rare_api.main import create_app as create_rare_app
-from rare_api.service import RareService
-from rare_sdk import AgentClient, AgentState
-from rare_sdk.cli import main as cli_main
-from rare_sdk.local_signer import create_local_signer_server
-from rare_sdk.state import (
+from _platform_stub import PlatformStubService, create_platform_app
+from rare_agent_sdk import AgentClient, AgentState
+from rare_agent_sdk.cli import main as cli_main
+from rare_agent_sdk.local_signer import create_local_signer_server
+from rare_agent_sdk.state import (
     get_agent_private_key_path,
     get_hosted_management_token_path,
     get_signer_key_path,
@@ -28,17 +27,29 @@ from rare_sdk.state import (
 )
 
 
-def build_runtime() -> TestClient:
-    rare_service = RareService(allow_local_upgrade_shortcuts=True)
-    platform_service = MoltbookService(
+def _load_rare_runtime() -> tuple[object, object]:
+    try:
+        main_module = import_module("rare_api.main")
+        service_module = import_module("rare_api.service")
+    except ModuleNotFoundError:
+        pytest.skip("rare_api package is unavailable; integration runtime tests skipped")
+    return main_module, service_module
+
+
+def build_runtime(*, rare_mount_path: str = "/rare") -> TestClient:
+    main_module, service_module = _load_rare_runtime()
+    create_rare_app = getattr(main_module, "create_app")
+    rare_service_cls = getattr(service_module, "RareService")
+    rare_service = rare_service_cls(allow_local_upgrade_shortcuts=True)
+    platform_service = PlatformStubService(
         aud="platform",
         identity_key_resolver=lambda kid: rare_service.get_identity_public_key(kid),
         rare_signer_public_key_provider=rare_service.get_rare_signer_public_key,
     )
 
     root = FastAPI()
-    root.mount("/rare", create_rare_app(rare_service))
     root.mount("/platform", create_platform_app(platform_service))
+    root.mount(rare_mount_path, create_rare_app(rare_service))
     return TestClient(root)
 
 
@@ -88,6 +99,26 @@ def test_sdk_identity_flow_hosted_signing() -> None:
 
     refresh = client.refresh_attestation()
     assert refresh["agent_id"] == state.agent_id
+
+    client.close()
+    http.close()
+
+
+def test_sdk_identity_flow_with_default_rare_url() -> None:
+    http = build_runtime(rare_mount_path="/")
+    state = AgentState()
+
+    client = AgentClient(
+        platform_base_url="http://testserver/platform",
+        state=state,
+        http_client=http,
+    )
+
+    register = client.register(name="sdk-default-url")
+    assert register["agent_id"] == state.agent_id
+
+    login = client.login(aud="platform", prefer_full=False)
+    assert login["agent_id"] == state.agent_id
 
     client.close()
     http.close()
@@ -292,7 +323,7 @@ def test_cli_show_state_redacts_sensitive_tokens(tmp_path, capsys) -> None:
 
 
 def test_cli_register_redacts_hosted_management_token(monkeypatch, tmp_path, capsys) -> None:
-    from rare_sdk import cli as cli_module
+    from rare_agent_sdk import cli as cli_module
 
     class FakeClient:
         def __init__(self, *args, **kwargs):
@@ -323,8 +354,8 @@ def test_cli_register_redacts_hosted_management_token(monkeypatch, tmp_path, cap
 
 
 def test_cli_outputs_json_error(monkeypatch, tmp_path, capsys) -> None:
-    from rare_sdk import cli as cli_module
-    from rare_sdk.client import AgentClientError
+    from rare_agent_sdk import cli as cli_module
+    from rare_agent_sdk.client import AgentClientError
 
     class FakeClient:
         def __init__(self, *args, **kwargs):

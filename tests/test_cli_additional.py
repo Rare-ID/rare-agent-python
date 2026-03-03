@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 
-from rare_sdk import cli as cli_module
-from rare_sdk.client import ApiError
+from rare_agent_sdk import cli as cli_module
+from rare_agent_sdk.client import ApiError
 
 
 class FakeClient:
@@ -130,3 +130,9 @@ def test_redact_payload_handles_lists() -> None:
         fields={"hosted_management_token"},
     )
     assert redacted[0]["hosted_management_token"] == "***REDACTED***"
+
+
+def test_cli_default_rare_url_matches_root_api_prefix() -> None:
+    parser = cli_module._build_parser()
+    args = parser.parse_args(["show-state"])
+    assert args.rare_url == "http://127.0.0.1:8000"

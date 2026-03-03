@@ -5,9 +5,9 @@ import json
 from contextlib import suppress
 from pathlib import Path
 
-from rare_sdk.client import AgentClient, AgentClientError, ApiError
-from rare_sdk.local_signer import serve_local_signer
-from rare_sdk.state import (
+from rare_agent_sdk.client import AgentClient, AgentClientError, ApiError
+from rare_agent_sdk.local_signer import serve_local_signer
+from rare_agent_sdk.state import (
     DEFAULT_STATE_FILE,
     get_signer_key_path,
     get_signer_socket_path,
@@ -23,7 +23,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=str(DEFAULT_STATE_FILE),
         help="Path to local agent state",
     )
-    parser.add_argument("--rare-url", default="http://127.0.0.1:8000/rare", help="Rare API base URL")
+    parser.add_argument("--rare-url", default="http://127.0.0.1:8000", help="Rare API base URL")
     parser.add_argument(
         "--platform-url",
         default="http://127.0.0.1:8000/platform",

@@ -8,9 +8,9 @@ WORKSPACE = ROOT.parent
 
 for path in (
     ROOT / "src",
+    ROOT / "tests",
     WORKSPACE / "rare-identity-core" / "libs",
     WORKSPACE / "rare-identity-core" / "services",
-    WORKSPACE / "rare-thirdparty-moltbook-example" / "apps",
 ):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))

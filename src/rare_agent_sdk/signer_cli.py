@@ -3,8 +3,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from rare_sdk.local_signer import serve_local_signer
-from rare_sdk.state import DEFAULT_STATE_FILE, get_signer_key_path, get_signer_socket_path
+from rare_agent_sdk.local_signer import serve_local_signer
+from rare_agent_sdk.state import DEFAULT_STATE_FILE, get_signer_key_path, get_signer_socket_path
 
 
 def _build_parser() -> argparse.ArgumentParser:
