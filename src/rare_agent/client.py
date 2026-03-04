@@ -5,7 +5,7 @@ from typing import Any
 
 import httpx
 
-from rare_identity_protocol import (
+from rare_protocol import (
     build_action_payload,
     build_agent_auth_payload,
     build_auth_challenge_payload,
@@ -23,8 +23,8 @@ from rare_identity_protocol import (
     sign_detached,
 )
 
-from rare_agent_sdk.local_signer import LocalSignerClient, LocalSignerError
-from rare_agent_sdk.state import AgentState
+from rare_agent.local_signer import LocalSignerClient, LocalSignerError
+from rare_agent.state import AgentState
 
 
 class AgentClientError(RuntimeError):
@@ -44,8 +44,8 @@ class AgentClient:
     def __init__(
         self,
         *,
-        rare_base_url: str = "http://127.0.0.1:8000",
-        platform_base_url: str = "http://127.0.0.1:8000/platform",
+        rare_base_url: str = "https://api.rareid.cc",
+        platform_base_url: str = "https://platform.example.com",
         state: AgentState | None = None,
         http_client: Any | None = None,
         signer_socket_path: str | None = None,

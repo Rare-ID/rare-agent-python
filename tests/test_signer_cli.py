@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from rare_agent_sdk import signer_cli
-from rare_agent_sdk.state import DEFAULT_STATE_FILE, get_signer_key_path, get_signer_socket_path
+from rare_agent import signer_cli
+from rare_agent.state import DEFAULT_STATE_FILE, get_signer_key_path, get_signer_socket_path
 
 
 def test_signer_cli_parser_defaults() -> None:

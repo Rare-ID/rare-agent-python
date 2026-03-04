@@ -3,19 +3,19 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "rare-agent-sdk"
+name = "rare-agent"
 version = "0.1.0"
-description = "Python SDK for Rare Identity agent flows"
+description = "Python SDK and CLI for Rare Agent identity flows"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "httpx>=0.27.0",
-  "rare-identity-protocol>=0.1.0",
+  "rare-protocol>=0.1.0",
 ]
 
 [project.scripts]
-rare = "rare_agent_sdk.cli:main"
-rare-signer = "rare_agent_sdk.signer_cli:main"
+rare = "rare_agent.cli:main"
+rare-signer = "rare_agent.signer_cli:main"
 
 [project.optional-dependencies]
 test = [
@@ -28,4 +28,4 @@ testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["rare_agent_sdk*"]
+include = ["rare_agent*"]

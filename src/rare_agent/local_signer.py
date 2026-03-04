@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from rare_identity_protocol import (
+from rare_protocol import (
     build_action_payload,
     build_agent_auth_payload,
     build_auth_challenge_payload,

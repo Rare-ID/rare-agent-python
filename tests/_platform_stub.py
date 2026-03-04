@@ -7,7 +7,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from rare_identity_protocol import (
+from rare_protocol import (
     TokenValidationError,
     build_action_payload,
     build_auth_challenge_payload,

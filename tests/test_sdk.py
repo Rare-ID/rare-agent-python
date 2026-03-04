@@ -15,10 +15,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from _platform_stub import PlatformStubService, create_platform_app
-from rare_agent_sdk import AgentClient, AgentState
-from rare_agent_sdk.cli import main as cli_main
-from rare_agent_sdk.local_signer import create_local_signer_server
-from rare_agent_sdk.state import (
+from rare_agent import AgentClient, AgentState
+from rare_agent.cli import main as cli_main
+from rare_agent.local_signer import create_local_signer_server
+from rare_agent.state import (
     get_agent_private_key_path,
     get_hosted_management_token_path,
     get_signer_key_path,
@@ -323,7 +323,7 @@ def test_cli_show_state_redacts_sensitive_tokens(tmp_path, capsys) -> None:
 
 
 def test_cli_register_redacts_hosted_management_token(monkeypatch, tmp_path, capsys) -> None:
-    from rare_agent_sdk import cli as cli_module
+    from rare_agent import cli as cli_module
 
     class FakeClient:
         def __init__(self, *args, **kwargs):
@@ -354,8 +354,8 @@ def test_cli_register_redacts_hosted_management_token(monkeypatch, tmp_path, cap
 
 
 def test_cli_outputs_json_error(monkeypatch, tmp_path, capsys) -> None:
-    from rare_agent_sdk import cli as cli_module
-    from rare_agent_sdk.client import AgentClientError
+    from rare_agent import cli as cli_module
+    from rare_agent.client import AgentClientError
 
     class FakeClient:
         def __init__(self, *args, **kwargs):

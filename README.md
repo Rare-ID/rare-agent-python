@@ -1,81 +1,53 @@
-# rare-agent-sdk-python
+# Rare Agent (Python)
 
-Python SDK and CLI for Agent identity flows on Rare.
+`rare-agent` is the Python SDK and CLI for agent identity flows on Rare.
 
 ## Features
 
-- Self register (`hosted-signer` or `self-hosted`)
-- Set name (signed)
-- Refresh public attestation
-- Platform grant/revoke and full attestation issue
-- Human-in-the-loop upgrades (`L1` email magic link, `L2` social connect)
-- Challenge login via third-party platform
-- Delegation/session/action signing via hosted Rare signer or local self-hosted key
-- Self-hosted private key stored in separate key file (`~/.config/rare/keys/<agent_id>.key`, mode `0600`)
-- Optional local signer daemon (`rare-signer`) so SDK process signs via IPC without loading private key
+- Agent self-registration (`hosted-signer` or `self-hosted`)
+- Name updates and public/full attestation refresh
+- Platform grant/revoke and full attestation issuance
+- L1/L2 upgrade flows
+- Challenge login and delegated action signing
+- Optional local signer daemon (`rare-signer`)
 
 ## Install
 
 ```bash
-# in this workspace, install core first to provide `rare_identity_protocol`
-(cd ../rare-identity-core && pip install -e .)
-pip install -e .[test]
+pip install rare-agent
 ```
 
-可复现依赖安装：
+For development:
 
 ```bash
-pip install -r requirements-test.lock
-pip install -e .[test] --no-deps
+python -m pip install -U pip setuptools wheel
+python -m pip install -e .[test]
 ```
 
-## Local Run Prerequisite
-
-先启动 core API：
+## Quickstart (5 minutes)
 
 ```bash
-(cd ../rare-identity-core && uvicorn rare_api.main:app --reload --host 127.0.0.1 --port 8000)
+rare register --name alice --rare-url https://api.rareid.cc
+rare grant-platform --aud platform.example --rare-url https://api.rareid.cc
+rare issue-full-attestation --aud platform.example --rare-url https://api.rareid.cc
+rare login --aud platform.example --platform-url https://platform.example.com --rare-url https://api.rareid.cc
 ```
 
-CLI 默认 `--rare-url` 为 `http://127.0.0.1:8000`（无需额外加 `/rare` 前缀）。
-
-## CLI
-
-```bash
-# terminal A: start local signer
-rare-signer
-
-# terminal B: self-hosted register/login via signer IPC
-rare register --name alice
-rare register --name alice --key-mode self-hosted
-rare request-upgrade --level L1 --email alice@example.com
-# send magic link (local stub returns token)
-rare upgrade-status --request-id <request_id>
-rare request-upgrade --level L2
-rare start-social --request-id <request_id> --provider github
-rare grant-platform --aud platform
-rare issue-full-attestation --aud platform
-rare login --aud platform --platform-url http://127.0.0.1:8000/platform
-rare login --aud platform --public-only
-rare set-name --name alice-v2
-rare refresh-attestation
-rare show-state
-```
-
-## SDK
+## Python SDK
 
 ```python
-from rare_agent_sdk import AgentClient, AgentState
+from rare_agent import AgentClient, AgentState
 
 state = AgentState()
-client = AgentClient(state=state)
+client = AgentClient(
+    state=state,
+    rare_base_url="https://api.rareid.cc",
+    platform_base_url="https://platform.example.com",
+)
+
 client.register(name="agent-1")
-upg = client.request_upgrade_l1(email="owner@example.com")
-sent = client.send_l1_upgrade_magic_link(request_id=upg["upgrade_request_id"])
-client.verify_l1_upgrade_magic_link(token=sent["token"])
-client.grant_platform(aud="platform")
-client.login(aud="platform")
-signed = client.sign_platform_action(action="post", action_payload={"content": "hello"})
+client.grant_platform(aud="platform.example")
+client.login(aud="platform.example")
 ```
 
 ## Test
@@ -84,8 +56,6 @@ signed = client.sign_platform_action(action="post", action_payload={"content": "
 pytest -q
 ```
 
-## Related Docs
+## Security and governance
 
-- 根仓用户流程：`../docs/user-flow.zh.md`
-- 根仓平台接入流程：`../docs/platform-integration-flow.zh.md`
-- 根仓上线计划：`../docs/deployment-gcp-cloudflare.zh.md`
+See `SECURITY.md`, `CODE_OF_CONDUCT.md`, `SUPPORT.md`, and `CONTRIBUTING.md`.
