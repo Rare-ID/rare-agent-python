@@ -61,14 +61,6 @@ def _build_parser() -> argparse.ArgumentParser:
     set_name.add_argument("--name", required=True)
     set_name.add_argument("--ttl", type=int, default=120)
 
-    grant_platform = subparsers.add_parser("grant-platform", help="Grant platform access for full attestation")
-    grant_platform.add_argument("--aud", required=True)
-    grant_platform.add_argument("--ttl", type=int, default=120)
-
-    revoke_platform = subparsers.add_parser("revoke-platform", help="Revoke platform full-attestation access")
-    revoke_platform.add_argument("--aud", required=True)
-    revoke_platform.add_argument("--ttl", type=int, default=120)
-
     issue_full = subparsers.add_parser("issue-full-attestation", help="Issue full identity attestation for a platform")
     issue_full.add_argument("--aud", required=True)
     issue_full.add_argument("--ttl", type=int, default=120)
@@ -165,10 +157,6 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif args.command == "set-name":
             response = client.set_name(name=args.name, ttl_seconds=args.ttl)
-        elif args.command == "grant-platform":
-            response = client.grant_platform(aud=args.aud, ttl_seconds=args.ttl)
-        elif args.command == "revoke-platform":
-            response = client.revoke_platform(aud=args.aud, ttl_seconds=args.ttl)
         elif args.command == "issue-full-attestation":
             response = client.issue_full_attestation(aud=args.aud, ttl_seconds=args.ttl)
         elif args.command == "request-upgrade":

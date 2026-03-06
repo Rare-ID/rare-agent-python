@@ -7,7 +7,7 @@ Python SDK and CLI for Agent identity flows on Rare.
 - Self register (`hosted-signer` or `self-hosted`)
 - Set name (signed)
 - Refresh public attestation
-- Platform grant/revoke and full attestation issue
+- Full attestation issue for registered platform
 - Human-in-the-loop upgrades (`L1` email magic link, `L2` social connect)
 - Challenge login via third-party platform
 - Delegation/session/action signing via hosted Rare signer or local self-hosted key
@@ -53,7 +53,6 @@ rare request-upgrade --level L1 --email alice@example.com
 rare upgrade-status --request-id <request_id>
 rare request-upgrade --level L2
 rare start-social --request-id <request_id> --provider github
-rare grant-platform --aud platform
 rare issue-full-attestation --aud platform
 rare login --aud platform --platform-url http://127.0.0.1:8000/platform
 rare login --aud platform --public-only
@@ -73,7 +72,6 @@ client.register(name="agent-1")
 upg = client.request_upgrade_l1(email="owner@example.com")
 sent = client.send_l1_upgrade_magic_link(request_id=upg["upgrade_request_id"])
 client.verify_l1_upgrade_magic_link(token=sent["token"])
-client.grant_platform(aud="platform")
 client.login(aud="platform")
 signed = client.sign_platform_action(action="post", action_payload={"content": "hello"})
 ```
@@ -86,6 +84,6 @@ pytest -q
 
 ## Related Docs
 
-- 根仓用户流程：`../docs/user-flow.zh.md`
-- 根仓平台接入流程：`../docs/platform-integration-flow.zh.md`
-- 根仓上线计划：`../docs/deployment-gcp-cloudflare.zh.md`
+- 工作区总览：`../Rare.md`
+- RIP 文档索引：`../rare-identity-core/docs/RIP_INDEX.md`
+- 平台接入规范：`../rare-identity-core/docs/rip-0005-platform-onboarding-and-events.md`

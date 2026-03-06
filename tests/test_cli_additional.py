@@ -19,12 +19,6 @@ class FakeClient:
     def set_name(self, *args, **kwargs):
         return {"name": kwargs.get("name", "next")}
 
-    def grant_platform(self, *args, **kwargs):
-        return {"status": "active"}
-
-    def revoke_platform(self, *args, **kwargs):
-        return {"status": "revoked"}
-
     def issue_full_attestation(self, *args, **kwargs):
         return {"full_identity_attestation": "full-token"}
 
@@ -57,8 +51,6 @@ def test_cli_covers_command_dispatch_branches(monkeypatch, tmp_path, capsys) -> 
     commands = [
         ["login"],
         ["set-name", "--name", "n1"],
-        ["grant-platform", "--aud", "platform"],
-        ["revoke-platform", "--aud", "platform"],
         ["issue-full-attestation", "--aud", "platform"],
         ["request-upgrade", "--level", "L1", "--email", "a@example.com"],
         ["request-upgrade", "--level", "L2"],

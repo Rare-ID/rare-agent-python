@@ -88,8 +88,6 @@ def test_sdk_identity_flow_hosted_signing() -> None:
     assert state.key_mode == "hosted-signer"
     assert state.hosted_management_token
     assert isinstance(state.hosted_management_token_expires_at, int)
-    listed = client.list_platform_grants()
-    assert listed["agent_id"] == state.agent_id
 
     login = client.login(aud="platform", prefer_full=False)
     assert login["agent_id"] == state.agent_id
@@ -548,7 +546,7 @@ def test_sdk_upgrade_l1_magic_link_flow() -> None:
     http.close()
 
 
-def test_sdk_self_hosted_upgrade_status_and_grants_are_accessible() -> None:
+def test_sdk_self_hosted_upgrade_status_is_accessible() -> None:
     http = build_runtime()
     state = AgentState()
     client = AgentClient(
@@ -565,10 +563,6 @@ def test_sdk_self_hosted_upgrade_status_and_grants_are_accessible() -> None:
     status = client.get_upgrade_status(request_id=request_id)
     assert status["upgrade_request_id"] == request_id
     assert status["status"] in {"human_pending", "upgraded"}
-
-    grants = client.list_platform_grants()
-    assert grants["agent_id"] == state.agent_id
-    assert isinstance(grants["grants"], list)
 
     client.close()
     http.close()

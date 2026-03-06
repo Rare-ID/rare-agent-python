@@ -10,7 +10,6 @@ from rare_identity_protocol import (
     build_agent_auth_payload,
     build_auth_challenge_payload,
     build_full_attestation_issue_payload,
-    build_platform_grant_payload,
     build_register_payload,
     build_set_name_payload,
     build_upgrade_request_payload,
@@ -305,129 +304,6 @@ class AgentClient:
             self.state.public_identity_attestation = public_attestation
 
         return result
-
-    def grant_platform(self, *, aud: str, ttl_seconds: int = 120) -> dict:
-        agent_id = self._require_agent_id()
-        issued_at = now_ts()
-        expires_at = issued_at + ttl_seconds
-        nonce = generate_nonce(10)
-
-        if self._is_self_hosted():
-            if self._signer is not None:
-                signed = self._call_signer(
-                    "sign_platform_grant",
-                    self._signer.sign_platform_grant,
-                    agent_id=agent_id,
-                    platform_aud=aud,
-                    nonce=nonce,
-                    issued_at=issued_at,
-                    expires_at=expires_at,
-                )
-                signature = signed["signature_by_agent"]
-            else:
-                sign_input = build_platform_grant_payload(
-                    agent_id=agent_id,
-                    platform_aud=aud,
-                    nonce=nonce,
-                    issued_at=issued_at,
-                    expires_at=expires_at,
-                )
-                signature = sign_detached(sign_input, load_private_key(self._require_agent_private_key()))
-            signed_payload = {
-                "agent_id": agent_id,
-                "platform_aud": aud,
-                "nonce": nonce,
-                "issued_at": issued_at,
-                "expires_at": expires_at,
-                "signature_by_agent": signature,
-            }
-        else:
-            signed_payload = self._request_json(
-                method="POST",
-                service="rare",
-                path="/v1/signer/sign_platform_grant",
-                json_payload={
-                    "agent_id": agent_id,
-                    "platform_aud": aud,
-                    "ttl_seconds": ttl_seconds,
-                },
-                headers=self._hosted_signer_headers(),
-            )
-        return self._request_json(
-            method="POST",
-            service="rare",
-            path="/v1/agents/platform-grants",
-            json_payload=signed_payload,
-        )
-
-    def revoke_platform(self, *, aud: str, ttl_seconds: int = 120) -> dict:
-        agent_id = self._require_agent_id()
-        issued_at = now_ts()
-        expires_at = issued_at + ttl_seconds
-        nonce = generate_nonce(10)
-
-        if self._is_self_hosted():
-            if self._signer is not None:
-                signed = self._call_signer(
-                    "sign_platform_grant",
-                    self._signer.sign_platform_grant,
-                    agent_id=agent_id,
-                    platform_aud=aud,
-                    nonce=nonce,
-                    issued_at=issued_at,
-                    expires_at=expires_at,
-                )
-                signature = signed["signature_by_agent"]
-            else:
-                sign_input = build_platform_grant_payload(
-                    agent_id=agent_id,
-                    platform_aud=aud,
-                    nonce=nonce,
-                    issued_at=issued_at,
-                    expires_at=expires_at,
-                )
-                signature = sign_detached(sign_input, load_private_key(self._require_agent_private_key()))
-            signed_payload = {
-                "agent_id": agent_id,
-                "nonce": nonce,
-                "issued_at": issued_at,
-                "expires_at": expires_at,
-                "signature_by_agent": signature,
-            }
-        else:
-            signed = self._request_json(
-                method="POST",
-                service="rare",
-                path="/v1/signer/sign_platform_grant",
-                json_payload={
-                    "agent_id": agent_id,
-                    "platform_aud": aud,
-                    "ttl_seconds": ttl_seconds,
-                },
-                headers=self._hosted_signer_headers(),
-            )
-            signed_payload = {
-                "agent_id": agent_id,
-                "nonce": signed["nonce"],
-                "issued_at": signed["issued_at"],
-                "expires_at": signed["expires_at"],
-                "signature_by_agent": signed["signature_by_agent"],
-            }
-        return self._request_json(
-            method="DELETE",
-            service="rare",
-            path=f"/v1/agents/platform-grants/{aud}",
-            json_payload=signed_payload,
-        )
-
-    def list_platform_grants(self) -> dict:
-        agent_id = self._require_agent_id()
-        return self._request_json(
-            method="GET",
-            service="rare",
-            path=f"/v1/agents/platform-grants/{agent_id}",
-            headers=self._management_headers(operation="list_platform_grants", resource_id=agent_id),
-        )
 
     def issue_full_attestation(self, *, aud: str, ttl_seconds: int = 120) -> dict:
         agent_id = self._require_agent_id()

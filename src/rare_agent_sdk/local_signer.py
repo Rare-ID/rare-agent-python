@@ -13,7 +13,6 @@ from rare_identity_protocol import (
     build_agent_auth_payload,
     build_auth_challenge_payload,
     build_full_attestation_issue_payload,
-    build_platform_grant_payload,
     build_register_payload,
     build_set_name_payload,
     build_upgrade_request_payload,
@@ -138,27 +137,6 @@ class LocalSignerService:
             "signature_by_session": signature_by_session,
         }
 
-    def sign_platform_grant(
-        self,
-        *,
-        agent_id: str,
-        platform_aud: str,
-        nonce: str,
-        issued_at: int,
-        expires_at: int,
-    ) -> dict[str, Any]:
-        if agent_id != self.agent_id:
-            raise LocalSignerError("agent_id does not match signer identity")
-        sign_input = build_platform_grant_payload(
-            agent_id=agent_id,
-            platform_aud=platform_aud,
-            nonce=nonce,
-            issued_at=issued_at,
-            expires_at=expires_at,
-        )
-        signature = sign_detached(sign_input, load_private_key(self._agent_private_key))
-        return {"signature_by_agent": signature}
-
     def sign_full_attestation_issue(
         self,
         *,
@@ -263,8 +241,6 @@ class LocalSignerService:
             return self.sign_set_name(**params)
         if method == "create_auth_proof":
             return self.create_auth_proof(**params)
-        if method == "sign_platform_grant":
-            return self.sign_platform_grant(**params)
         if method == "sign_full_attestation_issue":
             return self.sign_full_attestation_issue(**params)
         if method == "sign_upgrade_request":
@@ -456,26 +432,6 @@ class LocalSignerClient:
                 "aud": aud,
                 "action": action,
                 "action_payload": action_payload,
-                "nonce": nonce,
-                "issued_at": issued_at,
-                "expires_at": expires_at,
-            },
-        )
-
-    def sign_platform_grant(
-        self,
-        *,
-        agent_id: str,
-        platform_aud: str,
-        nonce: str,
-        issued_at: int,
-        expires_at: int,
-    ) -> dict[str, Any]:
-        return self._request(
-            "sign_platform_grant",
-            {
-                "agent_id": agent_id,
-                "platform_aud": platform_aud,
                 "nonce": nonce,
                 "issued_at": issued_at,
                 "expires_at": expires_at,

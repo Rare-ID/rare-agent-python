@@ -118,7 +118,7 @@ def test_client_guard_errors_for_missing_state_and_mode_constraints() -> None:
         http_client=_FakeHttpClient([]),
     )
     with pytest.raises(AgentClientError, match="hosted_management_token missing"):
-        hosted_missing_token.list_platform_grants()
+        hosted_missing_token.issue_full_attestation(aud="platform")
 
     self_hosted = AgentClient(
         state=AgentState(agent_id="agent-2", key_mode="self-hosted"),
@@ -167,7 +167,7 @@ def test_login_allows_public_fallback_when_full_hard_fail_disabled(monkeypatch: 
     http.close()
 
 
-def test_client_self_hosted_signs_grant_revoke_and_full_issue_before_api_failure(
+def test_client_self_hosted_signs_full_issue_before_api_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     private_key, public_key = generate_ed25519_keypair()
@@ -194,29 +194,15 @@ def test_client_self_hosted_signs_grant_revoke_and_full_issue_before_api_failure
     monkeypatch.setattr(client, "_request_json", fake_request_json)
 
     with pytest.raises(ApiError):
-        client.grant_platform(aud="platform")
-    with pytest.raises(ApiError):
-        client.revoke_platform(aud="platform")
-    with pytest.raises(ApiError):
         client.issue_full_attestation(aud="platform")
 
-    assert observed_payloads[0][0] == "POST:/v1/agents/platform-grants"
+    assert observed_payloads[0][0] == "POST:/v1/attestations/full/issue"
     assert observed_payloads[0][1] is not None
     assert observed_payloads[0][1]["platform_aud"] == "platform"
     assert isinstance(observed_payloads[0][1]["signature_by_agent"], str)
 
-    assert observed_payloads[1][0] == "DELETE:/v1/agents/platform-grants/platform"
-    assert observed_payloads[1][1] is not None
-    assert "platform_aud" not in observed_payloads[1][1]
-    assert isinstance(observed_payloads[1][1]["signature_by_agent"], str)
 
-    assert observed_payloads[2][0] == "POST:/v1/attestations/full/issue"
-    assert observed_payloads[2][1] is not None
-    assert observed_payloads[2][1]["platform_aud"] == "platform"
-    assert isinstance(observed_payloads[2][1]["signature_by_agent"], str)
-
-
-def test_client_hosted_paths_for_grant_revoke_and_full_issue_state_update() -> None:
+def test_client_hosted_path_for_full_issue_state_update() -> None:
     state = AgentState(
         agent_id="agent-hosted",
         key_mode="hosted-signer",
@@ -224,48 +210,6 @@ def test_client_hosted_paths_for_grant_revoke_and_full_issue_state_update() -> N
         hosted_management_token_expires_at=9999999999,
     )
     responses = [
-        _FakeResponse(
-            status_code=200,
-            json_body={
-                "agent_id": "agent-hosted",
-                "platform_aud": "platform",
-                "nonce": "n1",
-                "issued_at": 10,
-                "expires_at": 20,
-                "signature_by_agent": "sig-1",
-            },
-        ),
-        _FakeResponse(
-            status_code=200,
-            json_body={
-                "agent_id": "agent-hosted",
-                "platform_aud": "platform",
-                "status": "active",
-                "granted_at": 10,
-                "revoked_at": None,
-            },
-        ),
-        _FakeResponse(
-            status_code=200,
-            json_body={
-                "agent_id": "agent-hosted",
-                "platform_aud": "platform",
-                "nonce": "n2",
-                "issued_at": 10,
-                "expires_at": 20,
-                "signature_by_agent": "sig-2",
-            },
-        ),
-        _FakeResponse(
-            status_code=200,
-            json_body={
-                "agent_id": "agent-hosted",
-                "platform_aud": "platform",
-                "status": "revoked",
-                "granted_at": 10,
-                "revoked_at": 11,
-            },
-        ),
         _FakeResponse(
             status_code=200,
             json_body={
@@ -288,10 +232,6 @@ def test_client_hosted_paths_for_grant_revoke_and_full_issue_state_update() -> N
     ]
     client = AgentClient(state=state, http_client=_FakeHttpClient(responses))
 
-    granted = client.grant_platform(aud="platform")
-    assert granted["status"] == "active"
-    revoked = client.revoke_platform(aud="platform")
-    assert revoked["status"] == "revoked"
     issued = client.issue_full_attestation(aud="platform")
     assert issued["full_identity_attestation"] == "full-token"
     assert client.state.full_identity_attestations["platform"] == "full-token"

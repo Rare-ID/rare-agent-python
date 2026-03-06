@@ -158,20 +158,10 @@ def test_local_signer_service_happy_path_methods_and_dispatch(tmp_path: Path) ->
     assert isinstance(signed_action["signature_by_session"], str)
 
     assert isinstance(
-        service.sign_platform_grant(
-            agent_id=service.agent_id,
-            platform_aud="platform",
-            nonce="n5",
-            issued_at=1,
-            expires_at=120,
-        )["signature_by_agent"],
-        str,
-    )
-    assert isinstance(
         service.sign_full_attestation_issue(
             agent_id=service.agent_id,
             platform_aud="platform",
-            nonce="n6",
+            nonce="n5",
             issued_at=1,
             expires_at=120,
         )["signature_by_agent"],
@@ -182,7 +172,7 @@ def test_local_signer_service_happy_path_methods_and_dispatch(tmp_path: Path) ->
             agent_id=service.agent_id,
             target_level="L1",
             request_id="upg-1",
-            nonce="n7",
+            nonce="n6",
             issued_at=1,
             expires_at=120,
         )["signature_by_agent"],
@@ -193,7 +183,7 @@ def test_local_signer_service_happy_path_methods_and_dispatch(tmp_path: Path) ->
             agent_id=service.agent_id,
             operation="upgrade_status",
             resource_id="upg-1",
-            nonce="n8",
+            nonce="n7",
             issued_at=1,
             expires_at=120,
         )["signature_by_agent"],
@@ -237,24 +227,11 @@ def test_local_signer_service_happy_path_methods_and_dispatch(tmp_path: Path) ->
     )
     assert isinstance(
         service.dispatch(
-            "sign_platform_grant",
-            {
-                "agent_id": service.agent_id,
-                "platform_aud": "platform",
-                "nonce": "d4",
-                "issued_at": 1,
-                "expires_at": 2,
-            },
-        )["signature_by_agent"],
-        str,
-    )
-    assert isinstance(
-        service.dispatch(
             "sign_full_attestation_issue",
             {
                 "agent_id": service.agent_id,
                 "platform_aud": "platform",
-                "nonce": "d5",
+                "nonce": "d4",
                 "issued_at": 1,
                 "expires_at": 2,
             },
@@ -268,7 +245,7 @@ def test_local_signer_service_happy_path_methods_and_dispatch(tmp_path: Path) ->
                 "agent_id": service.agent_id,
                 "target_level": "L1",
                 "request_id": "upg-d",
-                "nonce": "d6",
+                "nonce": "d5",
                 "issued_at": 1,
                 "expires_at": 2,
             },
@@ -280,9 +257,9 @@ def test_local_signer_service_happy_path_methods_and_dispatch(tmp_path: Path) ->
             "sign_management_auth",
             {
                 "agent_id": service.agent_id,
-                "operation": "list_platform_grants",
+                "operation": "upgrade_status",
                 "resource_id": "agent-id",
-                "nonce": "d7",
+                "nonce": "d6",
                 "issued_at": 1,
                 "expires_at": 2,
             },
@@ -298,7 +275,7 @@ def test_local_signer_service_happy_path_methods_and_dispatch(tmp_path: Path) ->
                 "aud": "platform",
                 "action": "post",
                 "action_payload": {"content": "x"},
-                "nonce": "d8",
+                "nonce": "d7",
                 "issued_at": 1,
                 "expires_at": 2,
             },
