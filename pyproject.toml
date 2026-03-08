@@ -16,9 +16,9 @@ keywords = ["rare", "agent", "identity", "attestation", "delegation"]
 
 [project.urls]
 Homepage = "https://api.rareid.cc"
-Repository = "https://github.com/0xsidfan/Rare"
-Documentation = "https://github.com/0xsidfan/Rare/tree/main/rare-agent-sdk-python"
-Issues = "https://github.com/0xsidfan/Rare/issues"
+Repository = "https://github.com/Rare-ID/rare-agent-python"
+Documentation = "https://github.com/Rare-ID/rare-agent-python"
+Issues = "https://github.com/Rare-ID/rare-agent-python/issues"
 
 [project.scripts]
 rare = "rare_agent_sdk.cli:main"
