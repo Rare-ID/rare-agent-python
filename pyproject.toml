@@ -10,7 +10,15 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "httpx>=0.27.0",
+  "rare-identity-protocol>=0.1.0",
 ]
+keywords = ["rare", "agent", "identity", "attestation", "delegation"]
+
+[project.urls]
+Homepage = "https://api.rareid.cc"
+Repository = "https://github.com/0xsidfan/Rare"
+Documentation = "https://github.com/0xsidfan/Rare/tree/main/rare-agent-sdk-python"
+Issues = "https://github.com/0xsidfan/Rare/issues"
 
 [project.scripts]
 rare = "rare_agent_sdk.cli:main"
@@ -20,6 +28,7 @@ rare-signer = "rare_agent_sdk.signer_cli:main"
 test = [
   "pytest>=8.2.0",
   "fastapi>=0.115.0",
+  "rare-identity-verifier>=0.1.0",
 ]
 
 [tool.pytest.ini_options]

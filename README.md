@@ -2,6 +2,8 @@
 
 Python SDK and CLI for Agent identity flows on Rare.
 
+当前 SDK 的本地 Python 依赖只包含 `rare-identity-protocol`，不再依赖整个 `rare-identity-core` 服务包。
+
 ## Features
 
 - Self register (`hosted-signer` or `self-hosted`)
@@ -17,9 +19,7 @@ Python SDK and CLI for Agent identity flows on Rare.
 ## Install
 
 ```bash
-# in this workspace, install core first to provide `rare_identity_protocol`
-(cd ../rare-identity-core && pip install -e .)
-pip install -e .[test]
+pip install rare-agent-sdk
 ```
 
 可复现依赖安装：
@@ -27,6 +27,13 @@ pip install -e .[test]
 ```bash
 pip install -r requirements-test.lock
 pip install -e .[test] --no-deps
+```
+
+工作区本地开发仍可使用：
+
+```bash
+(cd ../rare-identity-protocol-python && pip install -e .)
+pip install -e .[test]
 ```
 
 ## Local Run Prerequisite
