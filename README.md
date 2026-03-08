@@ -22,29 +22,41 @@ Python SDK and CLI for Agent identity flows on Rare.
 pip install rare-agent-sdk
 ```
 
-可复现依赖安装：
+如果你要接入 Rare 托管服务，默认 Rare API URL 可配置为：
+
+```text
+https://api.rareid.cc
+```
+
+可复现依赖安装（本仓开发）：
 
 ```bash
 pip install -r requirements-test.lock
 pip install -e .[test] --no-deps
 ```
 
-工作区本地开发仍可使用：
+本地开发时可额外安装协议包：
 
 ```bash
 (cd ../rare-identity-protocol-python && pip install -e .)
 pip install -e .[test]
 ```
 
-## Local Run Prerequisite
+## Configuration
 
-先启动 core API：
+- CLI / SDK 连接公开 Rare 服务：
 
 ```bash
-(cd ../rare-identity-core && uvicorn rare_api.main:app --reload --host 127.0.0.1 --port 8000)
+rare show-state --rare-url https://api.rareid.cc
 ```
 
-CLI 默认 `--rare-url` 为 `http://127.0.0.1:8000`（无需额外加 `/rare` 前缀）。
+- 本地联调时，你也可以把 `--rare-url` 指向自建 Rare Core API，例如：
+
+```text
+http://127.0.0.1:8000
+```
+
+CLI 默认 `--rare-url` 不需要额外加 `/rare` 前缀。
 
 ## CLI
 
@@ -91,6 +103,5 @@ pytest -q
 
 ## Related Docs
 
-- 工作区总览：`../Rare.md`
-- RIP 文档索引：`../rare-identity-core/docs/RIP_INDEX.md`
-- 平台接入规范：`../rare-identity-core/docs/rip-0005-platform-onboarding-and-events.md`
+- 协议与 RIP 文档：`Rare-ID/rare-protocol-py`
+- 平台接入 SDK：`Rare-ID/rare-platform-ts`
