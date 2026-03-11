@@ -22,6 +22,7 @@ from rare_agent_sdk.state import (
     get_agent_private_key_path,
     get_hosted_management_token_path,
     get_signer_key_path,
+    get_signer_socket_path,
     load_state,
     save_state,
 )
@@ -213,6 +214,68 @@ def test_sdk_can_rotate_and_revoke_hosted_management_token() -> None:
     http.close()
 
 
+def test_sdk_can_recover_hosted_management_token_via_email() -> None:
+    http = build_runtime()
+    state = AgentState()
+    client = AgentClient(
+        rare_base_url="http://testserver/rare",
+        platform_base_url="http://testserver/platform",
+        state=state,
+        http_client=http,
+    )
+
+    client.register(name="recover-email")
+    requested = client.request_upgrade_l1(email="recover@example.com")
+    client.verify_l1_upgrade_magic_link(token=requested["token"])
+    original_token = state.hosted_management_token
+
+    factors = client.get_hosted_management_recovery_factors()
+    assert factors["available_factors"][0]["type"] == "email"
+
+    sent = client.send_hosted_management_recovery_email_link()
+    recovered = client.verify_hosted_management_recovery_email(token=sent["token"])
+    assert recovered["recovered"] is True
+    assert state.hosted_management_token != original_token
+    assert isinstance(state.hosted_management_token_expires_at, int)
+
+    client.close()
+    http.close()
+
+
+def test_sdk_can_recover_hosted_management_token_via_social() -> None:
+    http = build_runtime()
+    state = AgentState()
+    client = AgentClient(
+        rare_base_url="http://testserver/rare",
+        platform_base_url="http://testserver/platform",
+        state=state,
+        http_client=http,
+    )
+
+    client.register(name="recover-social")
+    l1 = client.request_upgrade_l1(email="recover-social@example.com")
+    client.verify_l1_upgrade_magic_link(token=client.send_l1_upgrade_magic_link(request_id=l1["upgrade_request_id"])["token"])
+    l2 = client.request_upgrade_l2()
+    client.complete_l2_social(
+        request_id=l2["upgrade_request_id"],
+        provider="github",
+        provider_user_snapshot={"id": "42", "login": "rare-dev"},
+    )
+    original_token = state.hosted_management_token
+
+    started = client.start_hosted_management_recovery_social(provider="github")
+    assert started["provider"] == "github"
+    recovered = client.complete_hosted_management_recovery_social(
+        provider="github",
+        provider_user_snapshot={"id": "42", "login": "rare-dev"},
+    )
+    assert recovered["recovered"] is True
+    assert state.hosted_management_token != original_token
+
+    client.close()
+    http.close()
+
+
 def test_sdk_self_hosted_can_sign_platform_action_and_call_post() -> None:
     http = build_runtime()
     state = AgentState()
@@ -318,6 +381,22 @@ def test_cli_show_state_redacts_sensitive_tokens(tmp_path, capsys) -> None:
     data = payload["data"]
     assert data["session_token"] == "***REDACTED***"
     assert data["hosted_management_token"] == "***REDACTED***"
+
+
+def test_cli_show_state_paths_include_resolved_secret_locations(tmp_path, capsys) -> None:
+    state_file = tmp_path / "state.json"
+    state = AgentState(agent_id="agent-2", key_mode="hosted-signer", hosted_management_token="hosted-token")
+    save_state(state_file, state)
+
+    exit_code = cli_main(["--state-file", str(state_file), "show-state", "--paths"])
+    output = capsys.readouterr().out.strip()
+
+    assert exit_code == 0
+    payload = json.loads(output)
+    paths = payload["data"]["paths"]
+    assert paths["state_file"] == str(state_file)
+    assert paths["signer_socket"] == str(get_signer_socket_path(state_file))
+    assert paths["hosted_management_token_file"] == str(get_hosted_management_token_path(state_file, "agent-2"))
 
 
 def test_cli_register_redacts_hosted_management_token(monkeypatch, tmp_path, capsys) -> None:
@@ -531,10 +610,13 @@ def test_sdk_upgrade_l1_magic_link_flow() -> None:
     client.register(name="upgrade-sdk-l1")
     requested = client.request_upgrade_l1(email="owner@example.com")
     assert requested["status"] == "human_pending"
+    assert requested["email_delivery"]["state"] == "queued"
+    assert requested["email_delivery"]["attempt_count"] == 1
     request_id = requested["upgrade_request_id"]
 
     sent = client.send_l1_upgrade_magic_link(request_id=request_id)
     assert sent["sent"] is True
+    assert sent["email_delivery"]["attempt_count"] == 2
     verified = client.verify_l1_upgrade_magic_link(token=sent["token"])
     assert verified["status"] == "upgraded"
     assert verified["level"] == "L1"
@@ -563,6 +645,29 @@ def test_sdk_self_hosted_upgrade_status_is_accessible() -> None:
     status = client.get_upgrade_status(request_id=request_id)
     assert status["upgrade_request_id"] == request_id
     assert status["status"] in {"human_pending", "upgraded"}
+    assert status["email_delivery"]["state"] == "queued"
+
+    client.close()
+    http.close()
+
+
+def test_sdk_upgrade_l1_can_skip_automatic_email_send() -> None:
+    http = build_runtime()
+    state = AgentState()
+    client = AgentClient(
+        rare_base_url="http://testserver/rare",
+        platform_base_url="http://testserver/platform",
+        state=state,
+        http_client=http,
+    )
+
+    client.register(name="sdk-no-auto-email")
+    requested = client.request_upgrade_l1(email="owner3@example.com", send_email=False)
+    assert requested["email_delivery"]["state"] == "not_requested"
+    assert requested["email_delivery"]["attempt_count"] == 0
+
+    sent = client.send_l1_upgrade_magic_link(request_id=requested["upgrade_request_id"])
+    assert sent["email_delivery"]["attempt_count"] == 1
 
     client.close()
     http.close()

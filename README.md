@@ -68,8 +68,14 @@ rare-signer
 rare register --name alice
 rare register --name alice --key-mode self-hosted
 rare request-upgrade --level L1 --email alice@example.com
-# send magic link (local stub returns token)
+# resend magic link if needed
+rare send-l1-link --request-id <request_id>
 rare upgrade-status --request-id <request_id>
+rare recovery-factors
+rare recover-hosted-token-email
+rare recover-hosted-token-email-verify --token <token>
+rare recover-hosted-token-social-start --provider github
+rare show-state --paths
 rare request-upgrade --level L2
 rare start-social --request-id <request_id> --provider github
 rare issue-full-attestation --aud platform
@@ -89,8 +95,11 @@ state = AgentState()
 client = AgentClient(state=state)
 client.register(name="agent-1")
 upg = client.request_upgrade_l1(email="owner@example.com")
-sent = client.send_l1_upgrade_magic_link(request_id=upg["upgrade_request_id"])
+sent = client.send_l1_upgrade_magic_link(request_id=upg["upgrade_request_id"])  # optional resend
 client.verify_l1_upgrade_magic_link(token=sent["token"])
+client.get_hosted_management_recovery_factors()
+recovery = client.send_hosted_management_recovery_email_link()
+client.verify_hosted_management_recovery_email(token=recovery["token"])
 client.login(aud="platform")
 signed = client.sign_platform_action(action="post", action_payload={"content": "hello"})
 ```

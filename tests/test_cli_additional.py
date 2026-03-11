@@ -31,8 +31,26 @@ class FakeClient:
     def get_upgrade_status(self, *args, **kwargs):
         return {"status": "human_pending", "upgrade_request_id": kwargs.get("request_id")}
 
+    def send_l1_upgrade_magic_link(self, *args, **kwargs):
+        return {"status": "human_pending", "upgrade_request_id": kwargs.get("request_id"), "sent": True}
+
     def start_l2_social(self, *args, **kwargs):
         return {"provider": kwargs.get("provider"), "state": "oauth-state"}
+
+    def get_hosted_management_recovery_factors(self, *args, **kwargs):
+        return {"available_factors": [{"type": "email"}]}
+
+    def send_hosted_management_recovery_email_link(self, *args, **kwargs):
+        return {"sent": True, "recovery_factor": "email"}
+
+    def verify_hosted_management_recovery_email(self, *args, **kwargs):
+        return {"recovered": True, "hosted_management_token": "recovered"}
+
+    def start_hosted_management_recovery_social(self, *args, **kwargs):
+        return {"provider": kwargs.get("provider"), "authorize_url": "https://example.com"}
+
+    def complete_hosted_management_recovery_social(self, *args, **kwargs):
+        return {"recovered": True, "recovery_factor": f"social:{kwargs.get('provider')}"}
 
     def rotate_hosted_management_token(self):
         return {"hosted_management_token": "rotated-token"}
@@ -53,11 +71,24 @@ def test_cli_covers_command_dispatch_branches(monkeypatch, tmp_path, capsys) -> 
         ["set-name", "--name", "n1"],
         ["issue-full-attestation", "--aud", "platform"],
         ["request-upgrade", "--level", "L1", "--email", "a@example.com"],
+        ["request-upgrade", "--level", "L1", "--email", "a@example.com", "--no-send-email"],
         ["request-upgrade", "--level", "L2"],
         ["upgrade-status", "--request-id", "req-1"],
+        ["send-l1-link", "--request-id", "req-1"],
         ["start-social", "--request-id", "req-2", "--provider", "github"],
         ["rotate-hosted-token"],
         ["revoke-hosted-token"],
+        ["recovery-factors"],
+        ["recover-hosted-token-email"],
+        ["recover-hosted-token-email-verify", "--token", "email-token"],
+        ["recover-hosted-token-social-start", "--provider", "github"],
+        [
+            "recover-hosted-token-social-complete",
+            "--provider",
+            "github",
+            "--snapshot-json",
+            '{"id":"42","login":"rare-dev"}',
+        ],
         ["refresh-attestation"],
     ]
     for cmd in commands:

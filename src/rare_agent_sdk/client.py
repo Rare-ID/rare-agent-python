@@ -424,7 +424,7 @@ class AgentClient:
             headers=self._hosted_signer_headers(),
         )
 
-    def request_upgrade_l1(self, *, email: str, ttl_seconds: int = 120) -> dict:
+    def request_upgrade_l1(self, *, email: str, ttl_seconds: int = 120, send_email: bool = True) -> dict:
         request_id = generate_nonce(10)
         signed_payload = self._sign_upgrade_request(
             target_level="L1",
@@ -432,6 +432,7 @@ class AgentClient:
             ttl_seconds=ttl_seconds,
         )
         signed_payload["contact_email"] = email
+        signed_payload["send_email"] = send_email
         return self._request_json(
             method="POST",
             service="rare",
@@ -480,6 +481,63 @@ class AgentClient:
             raise AgentClientError("missing hosted_management_token_expires_at in rotate response")
         self.state.hosted_management_token = token
         self.state.hosted_management_token_expires_at = expires_at
+        return result
+
+    def get_hosted_management_recovery_factors(self, *, agent_id: str | None = None) -> dict:
+        resolved_agent_id = agent_id or self._require_agent_id()
+        return self._request_json(
+            method="GET",
+            service="rare",
+            path=f"/v1/signer/recovery/factors/{resolved_agent_id}",
+        )
+
+    def send_hosted_management_recovery_email_link(self, *, agent_id: str | None = None) -> dict:
+        resolved_agent_id = agent_id or self._require_agent_id()
+        return self._request_json(
+            method="POST",
+            service="rare",
+            path="/v1/signer/recovery/email/send-link",
+            json_payload={"agent_id": resolved_agent_id},
+        )
+
+    def verify_hosted_management_recovery_email(self, *, token: str) -> dict:
+        result = self._request_json(
+            method="POST",
+            service="rare",
+            path="/v1/signer/recovery/email/verify",
+            json_payload={"token": token},
+        )
+        self._apply_recovered_hosted_management_token(result)
+        return result
+
+    def start_hosted_management_recovery_social(self, *, provider: str, agent_id: str | None = None) -> dict:
+        resolved_agent_id = agent_id or self._require_agent_id()
+        return self._request_json(
+            method="POST",
+            service="rare",
+            path="/v1/signer/recovery/social/start",
+            json_payload={"agent_id": resolved_agent_id, "provider": provider},
+        )
+
+    def complete_hosted_management_recovery_social(
+        self,
+        *,
+        provider: str,
+        provider_user_snapshot: dict[str, Any],
+        agent_id: str | None = None,
+    ) -> dict:
+        resolved_agent_id = agent_id or self._require_agent_id()
+        result = self._request_json(
+            method="POST",
+            service="rare",
+            path="/v1/signer/recovery/social/complete",
+            json_payload={
+                "agent_id": resolved_agent_id,
+                "provider": provider,
+                "provider_user_snapshot": provider_user_snapshot,
+            },
+        )
+        self._apply_recovered_hosted_management_token(result)
         return result
 
     def revoke_hosted_management_token(self) -> dict:
@@ -795,6 +853,23 @@ class AgentClient:
 
     def _hosted_signer_headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._require_hosted_management_token()}"}
+
+    def _apply_recovered_hosted_management_token(self, payload: dict[str, Any]) -> None:
+        agent_id = payload.get("agent_id")
+        token = payload.get("hosted_management_token")
+        expires_at = payload.get("hosted_management_token_expires_at")
+        if not isinstance(agent_id, str) or not agent_id:
+            raise AgentClientError("missing agent_id in hosted management recovery response")
+        if self.state.agent_id and self.state.agent_id != agent_id:
+            raise AgentClientError("recovery response agent_id does not match local state")
+        if not isinstance(token, str) or not token:
+            raise AgentClientError("missing hosted_management_token in hosted management recovery response")
+        if not isinstance(expires_at, int):
+            raise AgentClientError("missing hosted_management_token_expires_at in hosted management recovery response")
+        self.state.agent_id = agent_id
+        self.state.key_mode = "hosted-signer"
+        self.state.hosted_management_token = token
+        self.state.hosted_management_token_expires_at = expires_at
 
     def _management_headers(self, *, operation: str, resource_id: str) -> dict[str, str]:
         if not self._is_self_hosted():

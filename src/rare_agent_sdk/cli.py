@@ -9,6 +9,8 @@ from rare_agent_sdk.client import AgentClient, AgentClientError, ApiError
 from rare_agent_sdk.local_signer import serve_local_signer
 from rare_agent_sdk.state import (
     DEFAULT_STATE_FILE,
+    get_agent_private_key_path,
+    get_hosted_management_token_path,
     get_signer_key_path,
     get_signer_socket_path,
     load_state,
@@ -69,9 +71,17 @@ def _build_parser() -> argparse.ArgumentParser:
     request_upgrade.add_argument("--level", required=True, choices=["L1", "L2"])
     request_upgrade.add_argument("--email", default=None)
     request_upgrade.add_argument("--ttl", type=int, default=120)
+    request_upgrade.add_argument(
+        "--no-send-email",
+        action="store_true",
+        help="Create the L1 request without automatically sending the verification email",
+    )
 
     upgrade_status = subparsers.add_parser("upgrade-status", help="Check upgrade request status")
     upgrade_status.add_argument("--request-id", required=True)
+
+    send_l1_link = subparsers.add_parser("send-l1-link", help="Send or resend the L1 verification email")
+    send_l1_link.add_argument("--request-id", required=True)
 
     start_social = subparsers.add_parser("start-social", help="Start L2 social verification flow")
     start_social.add_argument("--request-id", required=True)
@@ -79,8 +89,27 @@ def _build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("rotate-hosted-token", help="Rotate hosted signer management token")
     subparsers.add_parser("revoke-hosted-token", help="Revoke hosted signer management token")
+    subparsers.add_parser("recovery-factors", help="Show available hosted token recovery factors")
+    subparsers.add_parser("recover-hosted-token-email", help="Send hosted token recovery email")
+    recover_email_verify = subparsers.add_parser(
+        "recover-hosted-token-email-verify",
+        help="Verify hosted token recovery email link and store the recovered token",
+    )
+    recover_email_verify.add_argument("--token", required=True)
+    recover_social_start = subparsers.add_parser(
+        "recover-hosted-token-social-start",
+        help="Start hosted token social recovery flow",
+    )
+    recover_social_start.add_argument("--provider", required=True, choices=["x", "github", "linkedin"])
+    recover_social_complete = subparsers.add_parser(
+        "recover-hosted-token-social-complete",
+        help="Complete hosted token social recovery flow with a local snapshot",
+    )
+    recover_social_complete.add_argument("--provider", required=True, choices=["x", "github", "linkedin"])
+    recover_social_complete.add_argument("--snapshot-json", required=True)
     subparsers.add_parser("refresh-attestation", help="Refresh identity attestation")
-    subparsers.add_parser("show-state", help="Show local state")
+    show_state = subparsers.add_parser("show-state", help="Show local state")
+    show_state.add_argument("--paths", action="store_true", help="Include resolved local secret and socket paths")
     signer_serve = subparsers.add_parser("signer-serve", help="Run local signer daemon")
     signer_serve.add_argument("--socket-path", default=None)
     signer_serve.add_argument("--key-file", default=None)
@@ -117,6 +146,20 @@ def _redact_sensitive_state(state_payload: dict) -> dict:
 
 def _redact_command_response(response_payload: object) -> object:
     return _redact_payload(response_payload, fields={"hosted_management_token"})
+
+
+def _show_state_payload(*, state_file: Path, signer_socket: Path, state) -> dict:
+    payload = _redact_sensitive_state(state.to_dict(include_secrets=True))
+    paths = {
+        "state_file": str(state_file),
+        "signer_socket": str(signer_socket),
+    }
+    if state.agent_id and state.key_mode == "hosted-signer":
+        paths["hosted_management_token_file"] = str(get_hosted_management_token_path(state_file, state.agent_id))
+    if state.agent_id and state.key_mode == "self-hosted":
+        paths["agent_private_key_file"] = str(get_agent_private_key_path(state_file, state.agent_id))
+    payload["paths"] = paths
+    return payload
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -163,11 +206,17 @@ def main(argv: list[str] | None = None) -> int:
             if args.level == "L1":
                 if not args.email:
                     raise AgentClientError("request-upgrade L1 requires --email")
-                response = client.request_upgrade_l1(email=args.email, ttl_seconds=args.ttl)
+                response = client.request_upgrade_l1(
+                    email=args.email,
+                    ttl_seconds=args.ttl,
+                    send_email=not args.no_send_email,
+                )
             else:
                 response = client.request_upgrade_l2(ttl_seconds=args.ttl)
         elif args.command == "upgrade-status":
             response = client.get_upgrade_status(request_id=args.request_id)
+        elif args.command == "send-l1-link":
+            response = client.send_l1_upgrade_magic_link(request_id=args.request_id)
         elif args.command == "start-social":
             response = client.start_l2_social(
                 request_id=args.request_id,
@@ -177,10 +226,27 @@ def main(argv: list[str] | None = None) -> int:
             response = client.rotate_hosted_management_token()
         elif args.command == "revoke-hosted-token":
             response = client.revoke_hosted_management_token()
+        elif args.command == "recovery-factors":
+            response = client.get_hosted_management_recovery_factors()
+        elif args.command == "recover-hosted-token-email":
+            response = client.send_hosted_management_recovery_email_link()
+        elif args.command == "recover-hosted-token-email-verify":
+            response = client.verify_hosted_management_recovery_email(token=args.token)
+        elif args.command == "recover-hosted-token-social-start":
+            response = client.start_hosted_management_recovery_social(provider=args.provider)
+        elif args.command == "recover-hosted-token-social-complete":
+            response = client.complete_hosted_management_recovery_social(
+                provider=args.provider,
+                provider_user_snapshot=json.loads(args.snapshot_json),
+            )
         elif args.command == "refresh-attestation":
             response = client.refresh_attestation()
         elif args.command == "show-state":
-            response = _redact_sensitive_state(state.to_dict(include_secrets=True))
+            response = (
+                _show_state_payload(state_file=state_file, signer_socket=signer_socket, state=state)
+                if args.paths
+                else _redact_sensitive_state(state.to_dict(include_secrets=True))
+            )
         else:
             parser.error(f"unknown command: {args.command}")
             return 2
