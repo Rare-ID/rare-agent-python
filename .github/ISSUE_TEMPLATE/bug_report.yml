@@ -1,0 +1,32 @@
+name: Bug report
+description: Report a reproducible SDK or CLI bug
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What broke and what did you expect instead?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Which `rare-agent-sdk` version are you using?
+      placeholder: 0.2.0
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: SDK call or CLI command
+      description: Include the minimal command or code snippet that reproduces the problem
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Python version, OS, and whether you used hosted-signer or self-hosted mode

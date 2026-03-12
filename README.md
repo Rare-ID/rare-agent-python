@@ -1,116 +1,98 @@
-# rare-agent-sdk-python
+# rare-agent-sdk
 
-Python SDK and CLI for Agent identity flows on Rare.
+Python SDK and CLI for the Rare agent identity lifecycle.
 
-当前 SDK 的本地 Python 依赖只包含 `rare-identity-protocol`，不再依赖整个 `rare-identity-core` 服务包。
+## What It Is
 
-## Features
+`rare-agent-sdk` helps an agent register, manage its identity, request upgrades, issue attestations, and complete Rare login flows against Rare-compatible platforms.
 
-- Self register (`hosted-signer` or `self-hosted`)
-- Set name (signed)
-- Refresh public attestation
-- Full attestation issue for registered platform
-- Human-in-the-loop upgrades (`L1` email magic link, `L2` social connect)
-- Challenge login via third-party platform
-- Delegation/session/action signing via hosted Rare signer or local self-hosted key
-- Self-hosted private key stored in separate key file (`~/.config/rare/keys/<agent_id>.key`, mode `0600`)
-- Optional local signer daemon (`rare-signer`) so SDK process signs via IPC without loading private key
+## Who It Is For
 
-## Install
+- Agent developers integrating Rare identity into Python apps
+- Teams choosing between Rare hosted signing and self-hosted keys
+- Operators testing end-to-end login and attestation flows locally
+
+## Why It Exists
+
+Rare login is not a single token exchange. Agents need to manage keys, sign fixed protocol payloads, refresh attestations, handle human verification upgrades, and produce delegation material for platforms. This repository packages that lifecycle into a Python API and CLI.
+
+## How It Fits Into Rare
+
+- `Rare-ID/rare-protocol-py` defines the public protocol rules
+- `rare-agent-sdk` handles the agent-side lifecycle
+- `Rare-ID/rare-platform-ts` is the platform-side toolkit that verifies what this SDK produces
+
+## Quick Start
 
 ```bash
 pip install rare-agent-sdk
 ```
 
-如果你要接入 Rare 托管服务，默认 Rare API URL 可配置为：
-
-```text
-https://api.rareid.cc
-```
-
-可复现依赖安装（本仓开发）：
+Use the hosted Rare API:
 
 ```bash
-pip install -r requirements-test.lock
-pip install -e .[test] --no-deps
-```
-
-本地开发时可额外安装协议包：
-
-```bash
-(cd ../rare-identity-protocol-python && pip install -e .)
-pip install -e .[test]
-```
-
-## Configuration
-
-- CLI / SDK 连接公开 Rare 服务：
-
-```bash
+rare register --name alice --rare-url https://api.rareid.cc
+rare refresh-attestation --rare-url https://api.rareid.cc
 rare show-state --rare-url https://api.rareid.cc
 ```
 
-- 本地联调时，你也可以把 `--rare-url` 指向自建 Rare Core API，例如：
-
-```text
-http://127.0.0.1:8000
-```
-
-CLI 默认 `--rare-url` 不需要额外加 `/rare` 前缀。
-
-## CLI
-
-```bash
-# terminal A: start local signer
-rare-signer
-
-# terminal B: self-hosted register/login via signer IPC
-rare register --name alice
-rare register --name alice --key-mode self-hosted
-rare request-upgrade --level L1 --email alice@example.com
-# resend magic link if needed
-rare send-l1-link --request-id <request_id>
-rare upgrade-status --request-id <request_id>
-rare recovery-factors
-rare recover-hosted-token-email
-rare recover-hosted-token-email-verify --token <token>
-rare recover-hosted-token-social-start --provider github
-rare show-state --paths
-rare request-upgrade --level L2
-rare start-social --request-id <request_id> --provider github
-rare issue-full-attestation --aud platform
-rare login --aud platform --platform-url http://127.0.0.1:8000/platform
-rare login --aud platform --public-only
-rare set-name --name alice-v2
-rare refresh-attestation
-rare show-state
-```
-
-## SDK
+Use the Python SDK:
 
 ```python
 from rare_agent_sdk import AgentClient, AgentState
 
 state = AgentState()
-client = AgentClient(state=state)
+client = AgentClient(
+    state=state,
+    rare_base_url="https://api.rareid.cc",
+)
 client.register(name="agent-1")
-upg = client.request_upgrade_l1(email="owner@example.com")
-sent = client.send_l1_upgrade_magic_link(request_id=upg["upgrade_request_id"])  # optional resend
-client.verify_l1_upgrade_magic_link(token=sent["token"])
-client.get_hosted_management_recovery_factors()
-recovery = client.send_hosted_management_recovery_email_link()
-client.verify_hosted_management_recovery_email(token=recovery["token"])
-client.login(aud="platform")
-signed = client.sign_platform_action(action="post", action_payload={"content": "hello"})
+client.refresh_attestation()
+print(client.state.agent_id)
+client.close()
 ```
 
-## Test
+## Production Notes
+
+- `agent_id` is the Ed25519 public key and remains the primary identity key.
+- Two operating modes are supported: `hosted-signer` and `self-hosted`.
+- Self-hosted keys are stored separately from the JSON state file under `~/.config/rare/keys/` with `0600` permissions.
+- `rare-signer` lets you keep the private key out of the main SDK process by signing over local IPC.
+- Platforms should verify the delegation and attestation materials produced by this SDK locally.
+
+Additional docs:
+
+- `STATUS.md`
+- `HOSTED_VS_SELF_HOSTED.md`
+
+## Common CLI Flows
 
 ```bash
-pytest -q
+rare-signer
+rare register --name alice
+rare register --name alice --key-mode self-hosted
+rare set-name --name alice-v2
+rare refresh-attestation
+rare request-upgrade --level L1 --email alice@example.com
+rare send-l1-link --request-id <request_id>
+rare upgrade-status --request-id <request_id>
+rare request-upgrade --level L2
+rare start-social --request-id <request_id> --provider github
+rare issue-full-attestation --aud platform
+rare login --aud platform --platform-url http://127.0.0.1:8000/platform
+rare login --aud platform --public-only
+rare recovery-factors
+rare recover-hosted-token-email
+rare recover-hosted-token-email-verify --token <token>
+rare recover-hosted-token-social-start --provider github
+rare show-state --paths
 ```
 
-## Related Docs
+## Development
 
-- 协议与 RIP 文档：`Rare-ID/rare-protocol-py`
-- 平台接入 SDK：`Rare-ID/rare-platform-ts`
+```bash
+pip install -r requirements-test.lock
+pip install -e .[test] --no-deps
+pytest -q
+python -m build
+```

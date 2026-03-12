@@ -1,0 +1,24 @@
+name: Feature request
+description: Propose an SDK, CLI, or docs improvement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What integration problem are you trying to solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Describe the API, CLI, or docs change you want
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility or security impact
+      description: Does this affect signing behavior, key management, or protocol compatibility?
