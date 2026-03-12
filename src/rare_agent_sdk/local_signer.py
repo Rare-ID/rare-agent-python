@@ -25,6 +25,14 @@ from rare_identity_protocol import (
     sign_detached,
 )
 
+_HAS_UNIX_STREAM_SERVER = hasattr(socketserver, "UnixStreamServer")
+_HAS_AF_UNIX = hasattr(socket, "AF_UNIX")
+_UNIX_STREAM_SERVER_BASE = (
+    socketserver.UnixStreamServer
+    if _HAS_UNIX_STREAM_SERVER
+    else socketserver.TCPServer
+)
+
 
 class LocalSignerError(RuntimeError):
     """Raised when local signer IPC or operation execution fails."""
@@ -252,10 +260,12 @@ class LocalSignerService:
         raise LocalSignerError(f"unsupported method: {method}")
 
 
-class _LocalSignerServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+class _LocalSignerServer(socketserver.ThreadingMixIn, _UNIX_STREAM_SERVER_BASE):
     daemon_threads = True
 
     def __init__(self, socket_path: str, service: LocalSignerService) -> None:
+        if not _HAS_UNIX_STREAM_SERVER:
+            raise LocalSignerError("local signer requires Unix domain sockets")
         socket_file = Path(socket_path)
         socket_file.parent.mkdir(parents=True, exist_ok=True)
         if socket_file.exists():
@@ -294,7 +304,7 @@ class _LocalSignerHandler(socketserver.StreamRequestHandler):
 
 
 def create_local_signer_server(*, socket_path: str, key_file: str) -> _LocalSignerServer:
-    if os.name == "nt":
+    if os.name == "nt" or not _HAS_UNIX_STREAM_SERVER or not _HAS_AF_UNIX:
         raise LocalSignerError("local signer requires Unix domain sockets")
     service = LocalSignerService(key_file=Path(key_file))
     return _LocalSignerServer(socket_path=socket_path, service=service)
@@ -315,6 +325,8 @@ class LocalSignerClient:
         self.timeout_seconds = timeout_seconds
 
     def _request(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        if not _HAS_AF_UNIX:
+            raise LocalSignerError("local signer requires Unix domain sockets")
         payload = json.dumps({"method": method, "params": params}) + "\n"
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:

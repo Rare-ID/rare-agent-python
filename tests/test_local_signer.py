@@ -19,6 +19,14 @@ from rare_agent_sdk.local_signer import (
     create_local_signer_server,
 )
 
+_HAS_UNIX_SOCKETS = hasattr(socketserver, "UnixStreamServer") and hasattr(socket, "AF_UNIX")
+_UNIX_STREAM_SERVER_BASE = (
+    socketserver.UnixStreamServer
+    if hasattr(socketserver, "UnixStreamServer")
+    else socketserver.TCPServer
+)
+pytestmark = pytest.mark.skipif(not _HAS_UNIX_SOCKETS, reason="requires Unix domain sockets")
+
 
 @contextmanager
 def _run_local_signer(tmp_path: Path):
@@ -45,7 +53,7 @@ def _short_socket_path(prefix: str) -> Path:
     return Path("/tmp") / f"rare-{prefix}-{uuid4().hex[:8]}.sock"
 
 
-class _StaticReplyServer(socketserver.UnixStreamServer):
+class _StaticReplyServer(_UNIX_STREAM_SERVER_BASE):
     allow_reuse_address = True
 
 

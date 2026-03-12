@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import stat
 import threading
 import time
@@ -312,6 +313,10 @@ def test_sdk_self_hosted_can_sign_platform_action_and_call_post() -> None:
     http.close()
 
 
+@pytest.mark.skipif(
+    os.name == "nt" or not hasattr(socket, "AF_UNIX"),
+    reason="local signer requires Unix domain sockets",
+)
 def test_sdk_self_hosted_with_local_signer_and_no_private_key_in_state(tmp_path) -> None:
     http = build_runtime()
     state = AgentState()
