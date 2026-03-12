@@ -85,7 +85,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     start_social = subparsers.add_parser("start-social", help="Start L2 social verification flow")
     start_social.add_argument("--request-id", required=True)
-    start_social.add_argument("--provider", required=True, choices=["x", "github"])
+    start_social.add_argument("--provider", required=True, choices=["x", "github", "linkedin"])
 
     subparsers.add_parser("rotate-hosted-token", help="Rotate hosted signer management token")
     subparsers.add_parser("revoke-hosted-token", help="Revoke hosted signer management token")
